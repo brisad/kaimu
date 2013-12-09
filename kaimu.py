@@ -86,15 +86,21 @@ class MainFrame(wx.Frame):
         # end wxGlade
 
     def _populate_filelist(self, files):
-        self.filelist_ctrl.datamap = {}
-        self.filelist_ctrl.ClearAll()
-        self.filelist_ctrl.InsertColumn(0, "Filename", width=-1)
+        self._populate_list_ctrl(self.filelist_ctrl, files)
+
+    def _populate_shared(self, files):
+        self._populate_list_ctrl(self.shared_files_ctrl, files)
+
+    def _populate_list_ctrl(self, ctrl, files):
+        ctrl.datamap = {}
+        ctrl.ClearAll()
+        ctrl.InsertColumn(0, "Filename", width=-1)
 
         for idx, item in enumerate(files):
             _id = wx.NewId()
-            self.filelist_ctrl.InsertStringItem(idx, item)
-            self.filelist_ctrl.datamap[_id] = item
-            self.filelist_ctrl.SetItemData(idx, _id)
+            ctrl.InsertStringItem(idx, item)
+            ctrl.datamap[_id] = item
+            ctrl.SetItemData(idx, _id)
 
 
 # end of class MainFrame
@@ -108,6 +114,8 @@ class MainApp(wx.App):
         main_frame.Show()
 
         self.filelist = FileList(main_frame._populate_filelist)
+        self.shared_files = FileList(main_frame._populate_shared)
+        self.shared_files.set_items(['my', 'shared', 'files'])
         self._start_timer()
         return 1
 
