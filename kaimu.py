@@ -50,8 +50,11 @@ class MainFrame(wx.Frame):
         kwds["style"] = wx.DEFAULT_FRAME_STYLE
         wx.Frame.__init__(self, *args, **kwds)
         self.notebook = wx.Notebook(self, -1, style=0)
-        self.notebook_pane = wx.Panel(self.notebook, -1)
-        self.filelist_ctrl = wx.ListCtrl(self.notebook_pane, -1, style=wx.LC_REPORT | wx.SUNKEN_BORDER)
+        self.available_files_pane = wx.Panel(self.notebook, -1)
+        self.filelist_ctrl = wx.ListCtrl(self.available_files_pane, -1, style=wx.LC_REPORT | wx.SUNKEN_BORDER)
+        self.shared_files_pane = wx.Panel(self.notebook, -1)
+        self.add_file_btn = wx.Button(self.shared_files_pane, wx.ID_ADD, "")
+        self.shared_files_ctrl = wx.ListCtrl(self.shared_files_pane, -1, style=wx.LC_REPORT | wx.SUNKEN_BORDER)
 
         self.__set_properties()
         self.__do_layout()
@@ -65,13 +68,20 @@ class MainFrame(wx.Frame):
 
     def __do_layout(self):
         # begin wxGlade: MainFrame.__do_layout
-        sizer_1 = wx.BoxSizer(wx.VERTICAL)
-        sizer_2 = wx.BoxSizer(wx.HORIZONTAL)
-        sizer_2.Add(self.filelist_ctrl, 1, wx.EXPAND, 0)
-        self.notebook_pane.SetSizer(sizer_2)
-        self.notebook.AddPage(self.notebook_pane, "Available files")
-        sizer_1.Add(self.notebook, 1, wx.EXPAND, 0)
-        self.SetSizer(sizer_1)
+        main_sizer = wx.BoxSizer(wx.VERTICAL)
+        shared_files_sizer = wx.BoxSizer(wx.VERTICAL)
+        shared_file_btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        available_files_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        available_files_sizer.Add(self.filelist_ctrl, 1, wx.EXPAND, 0)
+        self.available_files_pane.SetSizer(available_files_sizer)
+        shared_file_btn_sizer.Add(self.add_file_btn, 0, 0, 0)
+        shared_files_sizer.Add(shared_file_btn_sizer, 0, wx.EXPAND, 0)
+        shared_files_sizer.Add(self.shared_files_ctrl, 1, wx.EXPAND, 0)
+        self.shared_files_pane.SetSizer(shared_files_sizer)
+        self.notebook.AddPage(self.available_files_pane, "Available files")
+        self.notebook.AddPage(self.shared_files_pane, "Shared files")
+        main_sizer.Add(self.notebook, 1, wx.EXPAND, 0)
+        self.SetSizer(main_sizer)
         self.Layout()
         # end wxGlade
 
