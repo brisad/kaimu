@@ -23,6 +23,18 @@ class Publisher(Thread):
             self.socket.send(s)
 
 
+class SharedFilesPublisher(object):
+    """Distribute list of shared files to the network."""
+
+    def __init__(self, socket, serialize_func):
+        self.socket = socket
+        self.serialize_func = serialize_func
+
+    def publish_files(self, filelist):
+        data = self.serialize_func(filelist)
+        self.socket.send(data)
+
+
 class FileItem(object):
     def __init__(self, name, size, hosting_device):
         self.name = name
