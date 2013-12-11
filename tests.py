@@ -1,6 +1,11 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import zmq
 from unittest import TestCase, main
 from mocker import MockerTestCase
-from kaimu import FileList, FileItem, SharedFilesPublisher
+from kaimu import FileList, FileItem, \
+    SharedFilesPublisher, DownloadableFilesSubscriber
 
 
 class test_FileList(MockerTestCase):
@@ -43,6 +48,34 @@ class test_SharedFilesPublisher(MockerTestCase):
 
         pub = SharedFilesPublisher(socket, serialize_func)
         pub.publish_files(filelist)
+
+
+class test_DownloadableFilesSubscriber(MockerTestCase):
+    def test_receive_files_available(self):
+        socket = self.mocker.mock()
+        socket.recv(zmq.DONTWAIT)
+        self.mocker.result('serialized list')
+
+        unserialize_func = self.mocker.mock()
+        unserialize_func('serialized list')
+        self.mocker.result('the list')
+        self.mocker.replay()
+
+        sub = DownloadableFilesSubscriber(socket, unserialize_func)
+        filelist = sub.receive_files()
+
+        self.assertEqual('the list', filelist)
+
+    def test_receive_files_unavailable(self):
+        socket = self.mocker.mock()
+        socket.recv(zmq.DONTWAIT)
+        self.mocker.throw(zmq.ZMQError)
+        self.mocker.replay()
+
+        sub = DownloadableFilesSubscriber(socket, None)
+        filelist = sub.receive_files()
+
+        self.assertEqual(None, filelist)
 
 
 if __name__ == '__main__':

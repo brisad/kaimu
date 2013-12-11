@@ -35,6 +35,26 @@ class SharedFilesPublisher(object):
         self.socket.send(data)
 
 
+class DownloadableFilesSubscriber(object):
+    """Receive downloadable files from the network."""
+
+    def __init__(self, socket, unserialize_func):
+        self.socket = socket
+        self.unserialize_func = unserialize_func
+
+    def receive_files(self):
+        """Receive downloadable files.
+
+        Returns None if there is nothing to retrieve.
+        """
+
+        try:
+            data = self.socket.recv(zmq.DONTWAIT)
+            return self.unserialize_func(data)
+        except zmq.ZMQError:
+            return None
+
+
 class FileItem(object):
     def __init__(self, name, size, hosting_device):
         self.name = name
