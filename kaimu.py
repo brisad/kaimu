@@ -121,6 +121,7 @@ class MainFrame(wx.Frame):
         self._populate_list_ctrl(self.filelist_ctrl, files)
 
     def _populate_shared(self, files):
+        self.shared_files = files
         self._populate_list_ctrl(self.shared_files_ctrl, files)
 
     def _populate_list_ctrl(self, ctrl, files):
@@ -139,6 +140,8 @@ class MainFrame(wx.Frame):
 class MainApp(wx.App):
     def OnInit(self):
         self._init_zmq()
+        self.subscriber = DownloadableFilesSubscriber(self.subsock,
+                                                      lambda x: str(x))
 
         wx.InitAllImageHandlers()
         main_frame = MainFrame(None, -1, "")
@@ -152,18 +155,15 @@ class MainApp(wx.App):
         return 1
 
     def OnTimer(self, event):
-        try:
-            files = self.subscriber.recv(zmq.DONTWAIT)
+        files = self.subscriber.receive_files()
+        if files is not None:
             self.filelist.set_items(files.split(","))
-        except zmq.ZMQError:
-            return
 
     def _init_zmq(self):
         context = zmq.Context()
-        socket = context.socket(zmq.SUB)
-        socket.connect("tcp://localhost:5556")
-        socket.setsockopt(zmq.SUBSCRIBE, "")
-        self.subscriber = socket
+        self.subsock = context.socket(zmq.SUB)
+        self.subsock.connect("tcp://localhost:5556")
+        self.subsock.setsockopt(zmq.SUBSCRIBE, "")
 
     def _start_timer(self):
         timerid = wx.NewId()
