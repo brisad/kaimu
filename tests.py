@@ -15,11 +15,10 @@ class test_FileList(MockerTestCase):
 
     def test_notify(self):
         listener = self.mocker.mock()
-        listener(['file1', 'file2'])
-        self.mocker.result("HEJ")
+        f = FileList(listener)
+        listener(f)
         self.mocker.replay()
 
-        f = FileList(listener)
         f.set_items(['file1', 'file2'])
 
 
