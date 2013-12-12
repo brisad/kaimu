@@ -78,7 +78,7 @@ class FileList(object):
 
 
 class MainFrame(wx.Frame):
-    def __init__(self, *args, **kwds):
+    def __init__(self, publisher, *args, **kwds):
         # begin wxGlade: MainFrame.__init__
         kwds["style"] = wx.DEFAULT_FRAME_STYLE
         wx.Frame.__init__(self, *args, **kwds)
@@ -94,6 +94,8 @@ class MainFrame(wx.Frame):
 
         self.Bind(wx.EVT_BUTTON, self.OnAdd, self.add_file_btn)
         # end wxGlade
+
+        self.publisher = publisher
 
     def __set_properties(self):
         # begin wxGlade: MainFrame.__set_properties
@@ -147,16 +149,19 @@ class MainFrame(wx.Frame):
             self.shared_files.set_items([dlg.GetDirectory(), dlg.GetFilename()])
         dlg.Destroy()
 
+        self.publisher.publish_files(self.shared_files)
+
 
 # end of class MainFrame
 class MainApp(wx.App):
     def OnInit(self):
         self._init_zmq()
+        self.publisher = SharedFilesPublisher(self.pubsock, lambda x: str(x))
         self.subscriber = DownloadableFilesSubscriber(self.subsock,
                                                       lambda x: str(x))
 
         wx.InitAllImageHandlers()
-        main_frame = MainFrame(None, -1, "")
+        main_frame = MainFrame(self.publisher, None, -1, "")
         self.SetTopWindow(main_frame)
         main_frame.Show()
 
@@ -174,8 +179,12 @@ class MainApp(wx.App):
     def _init_zmq(self):
         context = zmq.Context()
         self.subsock = context.socket(zmq.SUB)
-        self.subsock.connect("tcp://localhost:5556")
+        self.subsock.connect("tcp://localhost:5556")  # The thread
+        self.subsock.connect("tcp://localhost:5557")  # Ourselves
         self.subsock.setsockopt(zmq.SUBSCRIBE, "")
+
+        self.pubsock = context.socket(zmq.PUB)
+        self.pubsock.bind("tcp://*:5557")
 
     def _start_timer(self):
         timerid = wx.NewId()
