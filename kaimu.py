@@ -21,7 +21,7 @@ class Publisher(Thread):
     def run(self):
         while True:
             sleep(1)
-            s = ",".join("file %d" % x for x in range(randrange(1, 12)))
+            s = json.dumps(["file %d" % x for x in range(randrange(1, 12))])
             self.socket.send(s)
 
 
@@ -165,7 +165,7 @@ class MainApp(wx.App):
         self.publisher = SharedFilesPublisher(
             self.pubsock, lambda obj: json.dumps(obj, cls=FileListJSONEncoder))
         self.subscriber = DownloadableFilesSubscriber(self.subsock,
-                                                      lambda x: str(x))
+                                                      lambda x: json.loads(x))
 
         wx.InitAllImageHandlers()
         main_frame = MainFrame(self.publisher, None, -1, "")
@@ -181,7 +181,7 @@ class MainApp(wx.App):
     def OnTimer(self, event):
         files = self.subscriber.receive_files()
         if files is not None:
-            self.filelist.set_items(files.split(","))
+            self.filelist.set_items(files)
 
     def _init_zmq(self):
         context = zmq.Context()
