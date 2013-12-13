@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import json
 import zmq
 from unittest import TestCase, main
 from mocker import MockerTestCase
 from kaimu import FileList, FileItem, \
-    SharedFilesPublisher, DownloadableFilesSubscriber
+    SharedFilesPublisher, DownloadableFilesSubscriber, FileListJSONEncoder
 
 
 class test_FileList(MockerTestCase):
@@ -75,6 +76,17 @@ class test_DownloadableFilesSubscriber(MockerTestCase):
         filelist = sub.receive_files()
 
         self.assertEqual(None, filelist)
+
+
+class test_FileListJSONEncoder(MockerTestCase):
+    def test_encode_list(self):
+        filelist = self.mocker.mock()
+        filelist.items
+        self.mocker.result(['a', 'b', 'c'])
+        self.mocker.replay()
+
+        data = json.dumps(filelist, cls=FileListJSONEncoder)
+        self.assertEqual('["a", "b", "c"]', data)
 
 
 if __name__ == '__main__':
