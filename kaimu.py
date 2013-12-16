@@ -75,13 +75,21 @@ class FileList(object):
         for item in self.items:
             yield item
 
+    def _notify(self):
+        if self.listener:
+            self.listener(self)
+
     def set_items(self, items):
         self.items = items
-        self.listener(self)
+        self._notify()
 
     def add_item(self, item):
         self.items.append(item)
-        self.listener(self)
+        self._notify()
+
+    def del_item(self, item):
+        self.items.remove(item)
+        self._notify()
 
 
 class FileListJSONEncoder(json.JSONEncoder):

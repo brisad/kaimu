@@ -10,25 +10,30 @@ from kaimu import FileList, FileItem, \
 
 
 class test_FileList(MockerTestCase):
+    def assertNotify(self):
+        listener = self.mocker.mock()
+        f = FileList(listener, ['file1', 'file2'])
+        listener(f)
+        self.mocker.replay()
+        return f
+
     def test_generator(self):
         f = FileList(None, ['file1', 'file2'])
         self.assertEqual(['file1', 'file2'], [x for x in f])
 
     def test_set_items_notify(self):
-        listener = self.mocker.mock()
-        f = FileList(listener)
-        listener(f)
-        self.mocker.replay()
-
-        f.set_items(['file1', 'file2'])
+        self.assertNotify().set_items(['file1', 'file2'])
 
     def test_add_item_notify(self):
-        listener = self.mocker.mock()
-        f = FileList(listener)
-        listener(f)
-        self.mocker.replay()
+        self.assertNotify().add_item('item')
 
-        f.add_item('item')
+    def test_del_item(self):
+        f = FileList(None, ['file1', 'file2'])
+        f.del_item('file1')
+        self.assertEqual(['file2'], [x for x in f])
+
+    def test_del_item_notify(self):
+        self.assertNotify().del_item('file1')
 
 
 class test_FileItem(TestCase):
