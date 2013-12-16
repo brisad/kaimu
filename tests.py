@@ -14,13 +14,21 @@ class test_FileList(MockerTestCase):
         f = FileList(None, ['file1', 'file2'])
         self.assertEqual(['file1', 'file2'], [x for x in f])
 
-    def test_notify(self):
+    def test_set_items_notify(self):
         listener = self.mocker.mock()
         f = FileList(listener)
         listener(f)
         self.mocker.replay()
 
         f.set_items(['file1', 'file2'])
+
+    def test_add_item_notify(self):
+        listener = self.mocker.mock()
+        f = FileList(listener)
+        listener(f)
+        self.mocker.replay()
+
+        f.add_item('item')
 
 
 class test_FileItem(TestCase):

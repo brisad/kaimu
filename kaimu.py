@@ -67,6 +67,8 @@ class FileItem(object):
 class FileList(object):
     def __init__(self, listener, items=None):
         self.listener = listener
+        if items is None:
+            items = []
         self.items = items
 
     def __iter__(self):
@@ -75,6 +77,10 @@ class FileList(object):
 
     def set_items(self, items):
         self.items = items
+        self.listener(self)
+
+    def add_item(self, item):
+        self.items.append(item)
         self.listener(self)
 
 
@@ -152,7 +158,8 @@ class MainFrame(wx.Frame):
         dlg = wx.FileDialog(self, "Choose file to add", os.getcwd(),
                             "", "*.*", wx.OPEN)
         if dlg.ShowModal() == wx.ID_OK:
-            self.shared_files.set_items([dlg.GetDirectory(), dlg.GetFilename()])
+            self.shared_files.add_item(dlg.GetDirectory())
+            self.shared_files.add_item(dlg.GetFilename())
         dlg.Destroy()
 
         self.publisher.publish_files(self.shared_files)
