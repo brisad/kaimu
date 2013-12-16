@@ -107,12 +107,14 @@ class MainFrame(wx.Frame):
         self.filelist_ctrl = wx.ListCtrl(self.available_files_pane, -1, style=wx.LC_REPORT | wx.SUNKEN_BORDER)
         self.shared_files_pane = wx.Panel(self.notebook, -1)
         self.add_file_btn = wx.Button(self.shared_files_pane, wx.ID_ADD, "")
+        self.remove_file_btn = wx.Button(self.shared_files_pane, wx.ID_REMOVE, "")
         self.shared_files_ctrl = wx.ListCtrl(self.shared_files_pane, -1, style=wx.LC_REPORT | wx.SUNKEN_BORDER)
 
         self.__set_properties()
         self.__do_layout()
 
         self.Bind(wx.EVT_BUTTON, self.OnAdd, self.add_file_btn)
+        self.Bind(wx.EVT_BUTTON, self.OnRemove, self.remove_file_btn)
         # end wxGlade
 
         self.publisher = publisher
@@ -132,6 +134,7 @@ class MainFrame(wx.Frame):
         available_files_sizer.Add(self.filelist_ctrl, 1, wx.EXPAND, 0)
         self.available_files_pane.SetSizer(available_files_sizer)
         shared_file_btn_sizer.Add(self.add_file_btn, 0, 0, 0)
+        shared_file_btn_sizer.Add(self.remove_file_btn, 0, 0, 0)
         shared_files_sizer.Add(shared_file_btn_sizer, 0, wx.EXPAND, 0)
         shared_files_sizer.Add(self.shared_files_ctrl, 1, wx.EXPAND, 0)
         self.shared_files_pane.SetSizer(shared_files_sizer)
@@ -160,6 +163,9 @@ class MainFrame(wx.Frame):
             ctrl.datamap[_id] = item
             ctrl.SetItemData(idx, _id)
 
+    def _get_list_ctrl_selected_item(self, ctrl):
+        return ctrl.GetNextItem(-1, wx.LIST_NEXT_ALL, wx.LIST_STATE_SELECTED)
+
     def OnAdd(self, event):  # wxGlade: MainFrame.<event_handler>
         """Add a file to shared files list."""
 
@@ -169,6 +175,15 @@ class MainFrame(wx.Frame):
             self.shared_files.add_item(dlg.GetDirectory())
             self.shared_files.add_item(dlg.GetFilename())
         dlg.Destroy()
+
+        self.publisher.publish_files(self.shared_files)
+
+    def OnRemove(self, event):  # wxGlade: MainFrame.<event_handler>
+        index = self._get_list_ctrl_selected_item(self.shared_files_ctrl)
+        if index != -1:
+            _id = self.shared_files_ctrl.GetItemData(index)
+            item = self.shared_files_ctrl.datamap[_id]
+            self.shared_files.del_item(item)
 
         self.publisher.publish_files(self.shared_files)
 
