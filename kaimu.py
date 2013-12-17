@@ -21,7 +21,9 @@ class Publisher(Thread):
     def run(self):
         while True:
             sleep(1)
-            s = json.dumps(["file %d" % x for x in range(randrange(1, 12))])
+            s = json.dumps([FileItem("file %d" % x, None, x, "device %d" % x)
+                            for x in range(randrange(1, 12))],
+                           cls=FileListJSONEncoder)
             self.socket.send(s)
 
 
@@ -40,9 +42,9 @@ class SharedFilesPublisher(object):
 class DownloadableFilesSubscriber(object):
     """Receive downloadable files from the network."""
 
-    def __init__(self, socket, unserialize_func):
+    def __init__(self, socket, deserialize_func):
         self.socket = socket
-        self.unserialize_func = unserialize_func
+        self.deserialize_func = deserialize_func
 
     def receive_files(self):
         """Receive downloadable files.
@@ -52,7 +54,7 @@ class DownloadableFilesSubscriber(object):
 
         try:
             data = self.socket.recv(zmq.DONTWAIT)
-            return self.unserialize_func(data)
+            return self.deserialize_func(data)
         except zmq.ZMQError:
             return None
 
@@ -101,6 +103,14 @@ class FileListJSONEncoder(json.JSONEncoder):
             return { "name": obj.name,
                      "size": obj.size,
                      "hosting_device": obj.hosting_device }
+
+
+def deserialize(s):
+    """Deserialize received data from subscriber to a FileList"""
+
+    items = [FileItem(item["name"], None, item["size"], item["hosting_device"])
+             for item in json.loads(s)]
+    return FileList(None, items)
 
 
 class MainFrame(wx.Frame):
@@ -165,7 +175,7 @@ class MainFrame(wx.Frame):
 
         for idx, item in enumerate(files):
             _id = wx.NewId()
-            ctrl.InsertStringItem(idx, item)
+            ctrl.InsertStringItem(idx, item.name)
             ctrl.datamap[_id] = item
             ctrl.SetItemData(idx, _id)
 
@@ -178,8 +188,10 @@ class MainFrame(wx.Frame):
         dlg = wx.FileDialog(self, "Choose file to add", os.getcwd(),
                             "", "*.*", wx.OPEN)
         if dlg.ShowModal() == wx.ID_OK:
-            self.shared_files.add_item(dlg.GetDirectory())
-            self.shared_files.add_item(dlg.GetFilename())
+            item = FileItem(dlg.GetFilename(),
+                            os.path.join(dlg.GetDirectory(), dlg.GetFilename()),
+                            os.path.getsize(dlg.GetFilename()), None)
+            self.shared_files.add_item(item)
         dlg.Destroy()
 
         self.publisher.publish_files(self.shared_files)
@@ -201,7 +213,7 @@ class MainApp(wx.App):
         self.publisher = SharedFilesPublisher(
             self.pubsock, lambda obj: json.dumps(obj, cls=FileListJSONEncoder))
         self.subscriber = DownloadableFilesSubscriber(self.subsock,
-                                                      lambda x: json.loads(x))
+                                                      deserialize)
 
         wx.InitAllImageHandlers()
         main_frame = MainFrame(self.publisher, None, -1, "")
@@ -210,7 +222,7 @@ class MainApp(wx.App):
 
         self.filelist = FileList(main_frame._populate_filelist)
         self.shared_files = FileList(main_frame._populate_shared)
-        self.shared_files.set_items(['my', 'shared', 'files'])
+        self.shared_files.set_items([])
         self._start_timer()
         return 1
 
