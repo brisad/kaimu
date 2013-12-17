@@ -38,12 +38,16 @@ class test_FileList(MockerTestCase):
 
 class test_FileItem(TestCase):
     def test_hosting_device(self):
-        item = FileItem("Filename", 1024, "device1")
+        item = FileItem("Filename", None, 1024, "device1")
         self.assertEqual("device1", item.hosting_device)
 
     def test_file_size(self):
-        item = FileItem("Filename", 1024, "device1")
+        item = FileItem("Filename", None, 1024, "device1")
         self.assertEqual(1024, item.size)
+
+    def test_file_path(self):
+        item = FileItem("Filename", "/path", 1024, "device1")
+        self.assertEqual("/path", item.path)
 
 
 class test_SharedFilesPublisher(MockerTestCase):

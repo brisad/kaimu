@@ -58,8 +58,9 @@ class DownloadableFilesSubscriber(object):
 
 
 class FileItem(object):
-    def __init__(self, name, size, hosting_device):
+    def __init__(self, name, path, size, hosting_device):
         self.name = name
+        self.path = path
         self.size = size
         self.hosting_device = hosting_device
 
