@@ -99,11 +99,27 @@ class test_FileListJSONEncoder(MockerTestCase):
     def test_encode_list(self):
         filelist = self.mocker.mock()
         filelist.items
+        self.mocker.count(1, 2)
         self.mocker.result(['a', 'b', 'c'])
         self.mocker.replay()
 
         data = json.dumps(filelist, cls=FileListJSONEncoder)
         self.assertEqual('["a", "b", "c"]', data)
+
+    def test_encode_file_item(self):
+        fileitem = self.mocker.mock()
+        fileitem.name
+        self.mocker.result('name')
+        fileitem.size
+        self.mocker.result(1234)
+        fileitem.hosting_device
+        self.mocker.result('device1')
+        self.mocker.replay()
+
+        data = json.dumps(fileitem, cls=FileListJSONEncoder)
+        self.assertIn('"name": "name"', data)
+        self.assertIn('"size": 1234', data)
+        self.assertIn('"hosting_device": "device1"', data)
 
 
 if __name__ == '__main__':

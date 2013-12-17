@@ -95,7 +95,12 @@ class FileList(object):
 
 class FileListJSONEncoder(json.JSONEncoder):
     def default(self, obj):
-        return obj.items
+        if hasattr(obj, "items"):
+            return obj.items
+        else:
+            return { "name": obj.name,
+                     "size": obj.size,
+                     "hosting_device": obj.hosting_device }
 
 
 class MainFrame(wx.Frame):
