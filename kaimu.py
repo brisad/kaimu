@@ -6,9 +6,26 @@ import os
 import json
 import wx
 import zmq
+from collections import namedtuple
 from random import randrange
 from time import sleep
 from threading import Thread
+
+
+class ServiceTracker(object):
+    """Track creation and removal of other kaimu services."""
+
+    services = namedtuple('services', ['new', 'removed'])
+
+    def __init__(self, socket):
+        self.socket = socket
+
+    def poll(self):
+        try:
+            data = json.loads(self.socket.recv(zmq.DONTWAIT))
+            return self.services(data[0], data[1])
+        except zmq.ZMQError:
+            return self.services([], [])
 
 
 class Publisher(Thread):

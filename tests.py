@@ -6,7 +6,8 @@ import zmq
 from unittest import TestCase, main
 from mocker import MockerTestCase
 from kaimu import FileList, FileItem, \
-    SharedFilesPublisher, DownloadableFilesSubscriber, FileListJSONEncoder
+    SharedFilesPublisher, DownloadableFilesSubscriber, FileListJSONEncoder, \
+    ServiceTracker
 
 
 class test_FileList(MockerTestCase):
@@ -120,6 +121,30 @@ class test_FileListJSONEncoder(MockerTestCase):
         self.assertIn('"name": "name"', data)
         self.assertIn('"size": 1234', data)
         self.assertIn('"hosting_device": "device1"', data)
+
+
+class test_ServiceTracker(MockerTestCase):
+    def test_poll_data_available(self):
+        socket = self.mocker.mock()
+        socket.recv(zmq.DONTWAIT)
+        self.mocker.result('[[["host1", 1234], ["host2", 5678]], [["host3"]]]')
+        self.mocker.replay()
+
+        st = ServiceTracker(socket)
+        services = st.poll()
+        self.assertListEqual([["host1", 1234], ["host2", 5678]], services.new)
+        self.assertListEqual([["host3"]], services.removed)
+
+    def test_poll_data_unavailable(self):
+        socket = self.mocker.mock()
+        socket.recv(zmq.DONTWAIT)
+        self.mocker.throw(zmq.ZMQError)
+        self.mocker.replay()
+
+        st = ServiceTracker(socket)
+        services = st.poll()
+        self.assertListEqual([], services.new)
+        self.assertListEqual([], services.removed)
 
 
 if __name__ == '__main__':
