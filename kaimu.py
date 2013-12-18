@@ -171,11 +171,16 @@ class MainFrame(wx.Frame):
     def _populate_list_ctrl(self, ctrl, files):
         ctrl.datamap = {}
         ctrl.ClearAll()
-        ctrl.InsertColumn(0, "Filename", width=-1)
+        ctrl.InsertColumn(0, "Filename")
+        ctrl.InsertColumn(1, "Size")
+        ctrl.InsertColumn(2, "Device")
 
         for idx, item in enumerate(files):
             _id = wx.NewId()
-            ctrl.InsertStringItem(idx, item.name)
+            pos = ctrl.InsertStringItem(idx, item.name)
+            ctrl.SetStringItem(pos, 1, str(item.size))
+            if item.hosting_device:
+                ctrl.SetStringItem(pos, 2, item.hosting_device)
             ctrl.datamap[_id] = item
             ctrl.SetItemData(idx, _id)
 
