@@ -4,7 +4,7 @@
 import json
 import zmq
 from unittest import TestCase, main
-from mocker import MockerTestCase
+from mocker import MockerTestCase, expect
 from kaimu import FileList, FileItem, \
     SharedFilesPublisher, DownloadableFilesSubscriber, FileListJSONEncoder, \
     ServiceTracker
@@ -124,27 +124,42 @@ class test_FileListJSONEncoder(MockerTestCase):
 
 
 class test_ServiceTracker(MockerTestCase):
-    def test_poll_data_available(self):
-        socket = self.mocker.mock()
-        socket.recv(zmq.DONTWAIT)
-        self.mocker.result('[[["host1", 1234], ["host2", 5678]], [["host3"]]]')
+    def setUp(self):
+        self.socket = self.mocker.mock()
+        Poller = self.mocker.replace("zmq.Poller")
+        self.poller = Poller()
+        self.poller.register(self.socket, zmq.POLLIN)
+
+    def add_poll(self, recv_data=None):
+        if recv_data is None:
+            expect(self.poller.poll(0)).result({})
+        else:
+            expect(self.poller.poll(0)).result({self.socket: zmq.POLLIN})
+            expect(self.socket.recv()).result(recv_data)
+
+    def test_poll_data(self):
+        self.add_poll('["N", "hostA", "10.0.2.15", 9999]')
+        self.add_poll('["R", "hostB"]')
+        self.add_poll(None)
         self.mocker.replay()
 
-        st = ServiceTracker(socket)
+        st = ServiceTracker(self.socket)
         services = st.poll()
-        self.assertListEqual([["host1", 1234], ["host2", 5678]], services.new)
-        self.assertListEqual([["host3"]], services.removed)
+        self.assertListEqual([["hostA", "10.0.2.15", 9999]], services.new)
+        self.assertListEqual([["hostB"]], services.removed)
 
-    def test_poll_data_unavailable(self):
-        socket = self.mocker.mock()
-        socket.recv(zmq.DONTWAIT)
-        self.mocker.throw(zmq.ZMQError)
+    def test_poll_no_data(self):
+        self.add_poll(None)
         self.mocker.replay()
 
-        st = ServiceTracker(socket)
+        st = ServiceTracker(self.socket)
         services = st.poll()
         self.assertListEqual([], services.new)
         self.assertListEqual([], services.removed)
+
+    def test_register_poller(self):
+        self.mocker.replay()
+        st = ServiceTracker(self.socket)
 
 
 if __name__ == '__main__':

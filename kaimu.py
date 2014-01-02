@@ -19,14 +19,35 @@ class ServiceTracker(object):
 
     def __init__(self, socket):
         self.socket = socket
+        self.poller = zmq.Poller()
+        self.poller.register(self.socket, zmq.POLLIN)
 
     def poll(self):
-        try:
-            data = json.loads(self.socket.recv(zmq.DONTWAIT))
-            return self.services(data[0], data[1])
-        except zmq.ZMQError:
-            return self.services([], [])
+        """Poll for new and removed services.
 
+        Polls the socket for all its recieved data, aggregates it and
+        returns it in a named tuple 'services' with two fields, 'new'
+        and 'removed'.  Each of which contains a list of new and
+        removed services, respectively.
+
+        The poll timeout is zero, so if no new and/or removed services
+        data is available, the corresponding fields of the named tuple
+        will have empty lists.
+        """
+
+        new = []
+        removed = []
+        while True:
+            socks = dict(self.poller.poll(0))
+            if self.socket in socks and socks[self.socket] == zmq.POLLIN:
+                data = json.loads(self.socket.recv())
+                if data[0] == "N":
+                    new.append(data[1:])
+                elif data[0] == "R":
+                    removed.append(data[1:])
+            else:
+                break
+        return self.services(new, removed)
 
 class Publisher(Thread):
     def __init__(self):
