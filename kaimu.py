@@ -20,18 +20,20 @@ class ServiceTracker(object):
 
     services = namedtuple('services', ['new', 'removed'])
 
-    def __init__(self, socket):
-        self.socket = socket
+    def __init__(self, discoversock, subsock):
+        self.discoversock = discoversock
+        self.subsock = subsock
         self.poller = zmq.Poller()
-        self.poller.register(self.socket, zmq.POLLIN)
+        self.poller.register(self.discoversock, zmq.POLLIN)
+        self.hosts = {}
 
-    def poll(self):
+    def _poll(self):
         """Poll for new and removed services.
 
-        Polls the socket for all its recieved data, aggregates it and
-        returns it in a named tuple 'services' with two fields, 'new'
-        and 'removed'.  Each of which contains a list of new and
-        removed services, respectively.
+        Polls the discovery socket for all its recieved data,
+        aggregates it and returns it in a named tuple 'services' with
+        two fields, 'new' and 'removed'.  Each of which contains a
+        list of new and removed services, respectively.
 
         The poll timeout is zero, so if no new and/or removed services
         data is available, the corresponding fields of the named tuple
@@ -42,8 +44,9 @@ class ServiceTracker(object):
         removed = []
         while True:
             socks = dict(self.poller.poll(0))
-            if self.socket in socks and socks[self.socket] == zmq.POLLIN:
-                data = json.loads(self.socket.recv())
+            if self.discoversock in socks and \
+                    socks[self.discoversock] == zmq.POLLIN:
+                data = json.loads(self.discoversock.recv())
                 if data[0] == "N":
                     new.append(data[1:])
                 elif data[0] == "R":
@@ -51,6 +54,28 @@ class ServiceTracker(object):
             else:
                 break
         return self.services(new, removed)
+
+    def track(self):
+        """Look for services and act on any changes.
+
+        Polls the discovery socket.  If a new service has appeared,
+        its name is saved and the subscriber socket will be connected
+        to it.  If a service has disappeared, its name is removed and
+        the subscriber socket disconnects from it.
+        """
+
+        services = self._poll()
+
+        for name, addr, port in services.new:
+            endpoint = "tcp://%s:%s" % (addr, port)
+            self.subsock.connect(endpoint)
+            self.hosts[name] = endpoint
+
+        for name, in services.removed:
+            if name in self.hosts:
+                self.subsock.disconnect(self.hosts[name])
+                del self.hosts[name]
+
 
 class Publisher(Thread):
     def __init__(self):

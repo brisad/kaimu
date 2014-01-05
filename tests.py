@@ -125,17 +125,17 @@ class test_FileListJSONEncoder(MockerTestCase):
 
 class test_ServiceTracker(MockerTestCase):
     def setUp(self):
-        self.socket = self.mocker.mock()
+        self.discoversock = self.mocker.mock()
         Poller = self.mocker.replace("zmq.Poller")
         self.poller = Poller()
-        self.poller.register(self.socket, zmq.POLLIN)
+        self.poller.register(self.discoversock, zmq.POLLIN)
 
     def add_poll(self, recv_data=None):
         if recv_data is None:
             expect(self.poller.poll(0)).result({})
         else:
-            expect(self.poller.poll(0)).result({self.socket: zmq.POLLIN})
-            expect(self.socket.recv()).result(recv_data)
+            expect(self.poller.poll(0)).result({self.discoversock: zmq.POLLIN})
+            expect(self.discoversock.recv()).result(recv_data)
 
     def test_poll_data(self):
         self.add_poll('["N", "hostA", "10.0.2.15", 9999]')
@@ -143,8 +143,8 @@ class test_ServiceTracker(MockerTestCase):
         self.add_poll(None)
         self.mocker.replay()
 
-        st = ServiceTracker(self.socket)
-        services = st.poll()
+        tracker = ServiceTracker(self.discoversock, None)
+        services = tracker._poll()
         self.assertListEqual([["hostA", "10.0.2.15", 9999]], services.new)
         self.assertListEqual([["hostB"]], services.removed)
 
@@ -152,14 +152,31 @@ class test_ServiceTracker(MockerTestCase):
         self.add_poll(None)
         self.mocker.replay()
 
-        st = ServiceTracker(self.socket)
-        services = st.poll()
+        tracker = ServiceTracker(self.discoversock, None)
+        services = tracker._poll()
         self.assertListEqual([], services.new)
         self.assertListEqual([], services.removed)
 
     def test_register_poller(self):
         self.mocker.replay()
-        st = ServiceTracker(self.socket)
+        tracker = ServiceTracker(self.discoversock, None)
+
+    def test_track(self):
+        with self.mocker.order():
+            subsock = self.mocker.mock()
+            self.add_poll('["N", "hostA", "192.168.0.10", 1234]')
+            self.add_poll(None)
+            subsock.connect("tcp://192.168.0.10:1234")
+            self.add_poll('["R", "hostA"]')
+            self.add_poll(None)
+            subsock.disconnect("tcp://192.168.0.10:1234")
+            self.mocker.replay()
+
+        tracker = ServiceTracker(self.discoversock, subsock)
+        tracker.track()
+        self.assertEqual({"hostA": "tcp://192.168.0.10:1234"}, tracker.hosts)
+        tracker.track()
+        self.assertEqual({}, tracker.hosts)
 
 
 class test_service_discovery(MockerTestCase):
