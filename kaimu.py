@@ -254,6 +254,11 @@ class MainFrame(wx.Frame):
 
 # end of class MainFrame
 class MainApp(wx.App):
+    def __init__(self, context, discover_socket, *args, **kwargs):
+        self.context = context
+        self.discover_socket = discover_socket
+        super(MainApp, self).__init__(*args, **kwargs)
+
     def OnInit(self):
         self._init_zmq()
         self.publisher = SharedFilesPublisher(
@@ -278,13 +283,12 @@ class MainApp(wx.App):
             self.filelist.set_items(files)
 
     def _init_zmq(self):
-        context = zmq.Context()
-        self.subsock = context.socket(zmq.SUB)
+        self.subsock = self.context.socket(zmq.SUB)
         self.subsock.connect("tcp://localhost:5556")  # The thread
         self.subsock.connect("tcp://localhost:5557")  # Ourselves
         self.subsock.setsockopt(zmq.SUBSCRIBE, "")
 
-        self.pubsock = context.socket(zmq.PUB)
+        self.pubsock = self.context.socket(zmq.PUB)
         self.pubsock.bind("tcp://*:5557")
 
     def _start_timer(self):
@@ -324,5 +328,5 @@ if __name__ == "__main__":
     # Start service discovery already here so that it doesn't
     # interfere with wxPython.
     with service_discovery(context) as discover_socket:
-        Kaimu = MainApp(0)
+        Kaimu = MainApp(context, discover_socket, redirect=False)
         Kaimu.MainLoop()
