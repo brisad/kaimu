@@ -4,10 +4,10 @@
 import json
 import zmq
 from unittest import TestCase, main
-from mocker import MockerTestCase, expect
+from mocker import MockerTestCase, expect, ANY
 from kaimu import FileList, FileItem, \
     SharedFilesPublisher, DownloadableFilesSubscriber, FileListJSONEncoder, \
-    ServiceTracker
+    ServiceTracker, service_discovery
 
 
 class test_FileList(MockerTestCase):
@@ -160,6 +160,25 @@ class test_ServiceTracker(MockerTestCase):
     def test_register_poller(self):
         self.mocker.replay()
         st = ServiceTracker(self.socket)
+
+
+class test_service_discovery(MockerTestCase):
+    def test_contextmanager(self):
+        with self.mocker.order():
+            context = self.mocker.mock()
+            socket = self.mocker.mock()
+            AvahiBrowser = self.mocker.replace("avahiservice.AvahiBrowser")
+            expect(context.socket(zmq.SUB)).result(socket)
+            socket.setsockopt(zmq.SUBSCRIBE, "")
+            socket.bind(ANY)
+            browser = AvahiBrowser(context, ANY)
+            browser.start()
+            browser.stop()
+            socket.close()
+            self.mocker.replay()
+
+        with service_discovery(context) as s:
+            self.assertEqual(s, socket)
 
 
 if __name__ == '__main__':

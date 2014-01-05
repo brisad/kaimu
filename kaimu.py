@@ -6,10 +6,13 @@ import os
 import json
 import wx
 import zmq
+import uuid
 from collections import namedtuple
 from random import randrange
 from time import sleep
 from threading import Thread
+from contextlib import contextmanager
+import avahiservice
 
 
 class ServiceTracker(object):
@@ -293,10 +296,33 @@ class MainApp(wx.App):
 
 # end of class MainApp
 
+
+def ipc_name(prefix):
+    return "ipc://%s-%s" % (prefix,str(uuid.uuid4())[:13])
+
+@contextmanager
+def service_discovery(context):
+    """Utility context manager for starting service discovery."""
+
+    socket = context.socket(zmq.SUB)
+    socket.setsockopt(zmq.SUBSCRIBE, "")
+    addr = ipc_name("kaimubrowse")
+    socket.bind(addr)
+    browser = avahiservice.AvahiBrowser(context, addr)
+    browser.start()
+    yield socket
+    browser.stop()
+    socket.close()
+
 if __name__ == "__main__":
+    context = zmq.Context()
+
     p = Publisher()
     p.daemon = True
     p.start()
 
-    Kaimu = MainApp(0)
-    Kaimu.MainLoop()
+    # Start service discovery already here so that it doesn't
+    # interfere with wxPython.
+    with service_discovery(context) as discover_socket:
+        Kaimu = MainApp(0)
+        Kaimu.MainLoop()
