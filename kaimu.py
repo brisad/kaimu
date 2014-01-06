@@ -15,6 +15,20 @@ from contextlib import contextmanager
 import avahiservice
 
 
+# Add disconnect method to socket if zmq version is less than 3.2.
+# Disconnect is used by ServiceTracker when a service disappears and
+# since the service should go away anyway we just replace this method
+# with a no-op and hope for the best.
+
+class Socket3_2(zmq.Socket):
+    def disconnect(self, addr):
+        pass
+
+
+if tuple(map(int, zmq.zmq_version().split("."))) < (3, 2, 0):
+    zmq.core.socket.Socket = Socket3_2
+
+
 class ServiceTracker(object):
     """Track creation and removal of other kaimu services."""
 
