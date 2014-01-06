@@ -67,7 +67,9 @@ class AvahiBrowser(object):
     def stop(self):
         socket = self.context.socket(zmq.PUB)
         socket.connect(self.ctrladdr)
-        socket.send("STOP")
+        # Send stop signal until process dies
+        while self.proc.is_alive():
+            socket.send("STOP")
 
     def _start_browser(self):
         bus = dbus.SystemBus(mainloop=DBusGMainLoop(set_as_default=True))
