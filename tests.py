@@ -5,7 +5,7 @@ import json
 import zmq
 from unittest import TestCase, main
 from mocker import MockerTestCase, expect, ANY
-from kaimu import FileList, FileItem, \
+from kaimu import FileList, RemoteFiles, FileItem, \
     SharedFilesPublisher, DownloadableFilesSubscriber, FileListJSONEncoder, \
     ServiceTracker, service_discovery
 
@@ -35,6 +35,31 @@ class test_FileList(MockerTestCase):
 
     def test_del_item_notify(self):
         self.assertNotify().del_item('file1')
+
+
+class test_RemoteFiles(MockerTestCase):
+    def assertNotify(self):
+        listener = self.mocker.mock()
+        f = RemoteFiles(listener)
+        listener(f)
+        self.mocker.replay()
+        return f
+
+    def test_add_item_notify(self):
+        self.assertNotify()['host1'] = ['file1', 'file2']
+
+    def test_del_item_notify(self):
+        f = self.assertNotify()
+        f._dict['host1'] = ['file1', 'file2']  # Avoid notification here
+        del f['host1']
+
+    def test_all_files(self):
+        f = RemoteFiles(None)
+        f['host1'] = ['file1', 'file2']
+        f['host2'] = ['file1']
+        self.assertListEqual(
+            [['host1', 'file1'], ['host1', 'file2'], ['host2', 'file1']],
+            f.all_files())
 
 
 class test_FileItem(TestCase):

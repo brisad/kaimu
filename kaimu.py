@@ -9,7 +9,7 @@ import json
 import wx
 import zmq
 import uuid
-from collections import namedtuple
+from collections import namedtuple, MutableMapping
 from random import randrange
 from time import sleep
 from threading import Thread
@@ -157,6 +157,37 @@ class FileItem(object):
         self.path = path
         self.size = size
         self.hosting_device = hosting_device
+
+
+class RemoteFiles(MutableMapping):
+    def __init__(self, listener):
+        self.listener = listener
+        self._dict = {}
+
+    def __delitem__(self, key):
+        del self._dict[key]
+        self._notify()
+
+    def __getitem__(self, key):
+        return self._dict[key]
+
+    def __setitem__(self, key, value):
+        self._dict[key] = value
+        self._notify()
+
+    def __iter__(self):
+        return iter(self._dict)
+
+    def __len__(self):
+        return len(self._dict)
+
+    def _notify(self):
+        if self.listener:
+            self.listener(self)
+
+    def all_files(self):
+        return [[host, file_] for host, files in sorted(self._dict.iteritems())
+                for file_ in files]
 
 
 class FileList(object):
