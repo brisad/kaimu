@@ -386,7 +386,7 @@ class MainApp(wx.App):
                      self.announcer.name, port)
         # Create our interface to the publisher socket
         self.publisher = SharedFilesPublisher(
-            pubsock, functools.partial(serialize, name=name))
+            pubsock, functools.partial(serialize, name=self.announcer.name))
 
     def _start_discover(self, context, discoversock):
         """Initialize discovery and subscription of services."""
