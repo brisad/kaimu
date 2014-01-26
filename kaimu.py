@@ -116,9 +116,10 @@ class Publisher(Thread):
             sleep(1)
             s = json.dumps(
                 {'name': 'Thread',
-                 'data': [FileItem("file %d" % x, None, x, "device %d" % x)
-                                     for x in range(randrange(1, 12))]},
-                           cls=FileListJSONEncoder)
+                 'data': [{'name': "file %d" % x, 'path': None,
+                           'size': x, 'hosting_device': "device %d" % x}
+                          for x in range(randrange(1, 12))]},
+                cls=FileListJSONEncoder)
             self.socket.send(s)
 
 
@@ -152,14 +153,6 @@ class DownloadableFilesSubscriber(object):
             return self.deserialize_func(data)
         except zmq.ZMQError:
             return None
-
-
-class FileItem(object):
-    def __init__(self, name, path, size, hosting_device):
-        self.name = name
-        self.path = path
-        self.size = size
-        self.hosting_device = hosting_device
 
 
 class RemoteFiles(MutableMapping):
@@ -231,10 +224,8 @@ class FileListJSONEncoder(json.JSONEncoder):
     def default(self, obj):
         if hasattr(obj, "items"):
             return obj.items
-        else:
-            return { "name": obj.name,
-                     "size": obj.size,
-                     "hosting_device": obj.hosting_device }
+        return json.JSONEncoder.default(self, obj)
+
 
 def serialize(data, name):
     """Serialize shared files data to be sent."""
@@ -244,11 +235,7 @@ def serialize(data, name):
 def deserialize(s):
     """Deserialize received data from subscriber."""
 
-    received = json.loads(s)
-    received['data'] = [FileItem(item["name"], None, item["size"],
-                                 item["hosting_device"])
-                        for item in received['data']]
-    return received
+    return json.loads(s)
 
 
 class MainFrame(wx.Frame):
@@ -299,6 +286,9 @@ class MainFrame(wx.Frame):
         self.Layout()
         # end wxGlade
 
+    def _remote_files_update(self, remote_files):
+        self._populate_filelist([x[1] for x in remote_files.all_files()])
+
     def _populate_filelist(self, files):
         self._populate_list_ctrl(self.filelist_ctrl, files)
 
@@ -315,10 +305,10 @@ class MainFrame(wx.Frame):
 
         for idx, item in enumerate(files):
             _id = wx.NewId()
-            pos = ctrl.InsertStringItem(idx, item.name)
-            ctrl.SetStringItem(pos, 1, str(item.size))
-            if item.hosting_device:
-                ctrl.SetStringItem(pos, 2, item.hosting_device)
+            pos = ctrl.InsertStringItem(idx, item['name'])
+            ctrl.SetStringItem(pos, 1, str(item['size']))
+            if item['hosting_device']:
+                ctrl.SetStringItem(pos, 2, item['hosting_device'])
             ctrl.datamap[_id] = item
             ctrl.SetItemData(idx, _id)
 
@@ -331,9 +321,10 @@ class MainFrame(wx.Frame):
         dlg = wx.FileDialog(self, "Choose file to add", os.getcwd(),
                             "", "*.*", wx.OPEN)
         if dlg.ShowModal() == wx.ID_OK:
-            item = FileItem(dlg.GetFilename(),
-                            os.path.join(dlg.GetDirectory(), dlg.GetFilename()),
-                            os.path.getsize(dlg.GetFilename()), None)
+            item = {'name': dlg.GetFilename(),
+                    'path': os.path.join(dlg.GetDirectory(), dlg.GetFilename()),
+                    'size':os.path.getsize(dlg.GetFilename()),
+                    'hosting_device': None}
             self.shared_files.add_item(item)
         dlg.Destroy()
 
@@ -365,7 +356,8 @@ class MainApp(wx.App):
         self.SetTopWindow(main_frame)
         main_frame.Show()
 
-        self.filelist = FileList(main_frame._populate_filelist)
+        self.remote_files = RemoteFiles(main_frame._remote_files_update)
+
         self.shared_files = FileList(main_frame._populate_shared)
         self.shared_files.set_items([])
         self._start_timer()
@@ -374,7 +366,7 @@ class MainApp(wx.App):
     def OnTimer(self, event):
         files = self.subscriber.receive_files()
         if files is not None:
-            self.filelist.set_items(files['data'])
+            self.remote_files[files['name']] = files['data']
 
         self.tracker.track()
 

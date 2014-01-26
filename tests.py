@@ -5,7 +5,7 @@ import json
 import zmq
 from unittest import TestCase, main
 from mocker import MockerTestCase, expect, ANY
-from kaimu import FileList, RemoteFiles, FileItem, \
+from kaimu import FileList, RemoteFiles, \
     SharedFilesPublisher, DownloadableFilesSubscriber, FileListJSONEncoder, \
     ServiceTracker, service_discovery
 
@@ -67,20 +67,6 @@ class test_RemoteFiles(MockerTestCase):
         self.assertEqual("{'host1': ['file1', 'file2']}", str(f))
 
 
-class test_FileItem(TestCase):
-    def test_hosting_device(self):
-        item = FileItem("Filename", None, 1024, "device1")
-        self.assertEqual("device1", item.hosting_device)
-
-    def test_file_size(self):
-        item = FileItem("Filename", None, 1024, "device1")
-        self.assertEqual(1024, item.size)
-
-    def test_file_path(self):
-        item = FileItem("Filename", "/path", 1024, "device1")
-        self.assertEqual("/path", item.path)
-
-
 class test_SharedFilesPublisher(MockerTestCase):
     def test_publish_files(self):
         filelist = object()
@@ -136,21 +122,6 @@ class test_FileListJSONEncoder(MockerTestCase):
 
         data = json.dumps(filelist, cls=FileListJSONEncoder)
         self.assertEqual('["a", "b", "c"]', data)
-
-    def test_encode_file_item(self):
-        fileitem = self.mocker.mock()
-        fileitem.name
-        self.mocker.result('name')
-        fileitem.size
-        self.mocker.result(1234)
-        fileitem.hosting_device
-        self.mocker.result('device1')
-        self.mocker.replay()
-
-        data = json.dumps(fileitem, cls=FileListJSONEncoder)
-        self.assertIn('"name": "name"', data)
-        self.assertIn('"size": 1234', data)
-        self.assertIn('"hosting_device": "device1"', data)
 
 
 class test_ServiceTracker(MockerTestCase):
