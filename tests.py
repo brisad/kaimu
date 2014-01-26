@@ -61,6 +61,11 @@ class test_RemoteFiles(MockerTestCase):
             [['host1', 'file1'], ['host1', 'file2'], ['host2', 'file1']],
             f.all_files())
 
+    def test_str(self):
+        f = RemoteFiles(None)
+        f['host1'] = ['file1', 'file2']
+        self.assertEqual("{'host1': ['file1', 'file2']}", str(f))
+
 
 class test_FileItem(TestCase):
     def test_hosting_device(self):

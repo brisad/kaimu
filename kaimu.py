@@ -192,6 +192,12 @@ class RemoteFiles(MutableMapping):
         return [[host, file_] for host, files in sorted(self._dict.iteritems())
                 for file_ in files]
 
+    def __unicode__(self):
+        return unicode(self._dict)
+
+    def __str__(self):
+        return unicode(self).encode("utf-8")
+
 
 class FileList(object):
     def __init__(self, listener, items=None):
