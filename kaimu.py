@@ -116,8 +116,7 @@ class Publisher(Thread):
             sleep(1)
             s = json.dumps(
                 {'name': 'Thread',
-                 'data': [{'name': "file %d" % x, 'path': None,
-                           'size': x, 'hosting_device': "device %d" % x}
+                 'data': [{'name': "file %d" % x, 'path': None, 'size': x}
                           for x in range(randrange(1, 12))]},
                 cls=FileListJSONEncoder)
             self.socket.send(s)
@@ -287,7 +286,9 @@ class MainFrame(wx.Frame):
         # end wxGlade
 
     def _remote_files_update(self, remote_files):
-        self._populate_filelist([x[1] for x in remote_files.all_files()])
+        self._populate_filelist(
+            [dict([('hosting_device', x[0])] + x[1].items())
+             for x in remote_files.all_files()])
 
     def _populate_filelist(self, files):
         self._populate_list_ctrl(self.filelist_ctrl, files)
@@ -307,7 +308,7 @@ class MainFrame(wx.Frame):
             _id = wx.NewId()
             pos = ctrl.InsertStringItem(idx, item['name'])
             ctrl.SetStringItem(pos, 1, str(item['size']))
-            if item['hosting_device']:
+            if 'hosting_device' in item:
                 ctrl.SetStringItem(pos, 2, item['hosting_device'])
             ctrl.datamap[_id] = item
             ctrl.SetItemData(idx, _id)
@@ -325,8 +326,7 @@ class MainFrame(wx.Frame):
             path = os.path.join(dlg.GetDirectory(), dlg.GetFilename())
             item = {'name': name,
                     'path': path,
-                    'size': os.path.getsize(path),
-                    'hosting_device': None}
+                    'size': os.path.getsize(path)}
             self.shared_files.add_item(item)
         dlg.Destroy()
 
