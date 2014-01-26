@@ -321,9 +321,11 @@ class MainFrame(wx.Frame):
         dlg = wx.FileDialog(self, "Choose file to add", os.getcwd(),
                             "", "*.*", wx.OPEN)
         if dlg.ShowModal() == wx.ID_OK:
-            item = {'name': dlg.GetFilename(),
-                    'path': os.path.join(dlg.GetDirectory(), dlg.GetFilename()),
-                    'size':os.path.getsize(dlg.GetFilename()),
+            name = dlg.GetFilename()
+            path = os.path.join(dlg.GetDirectory(), dlg.GetFilename())
+            item = {'name': name,
+                    'path': path,
+                    'size': os.path.getsize(path),
                     'hosting_device': None}
             self.shared_files.add_item(item)
         dlg.Destroy()
