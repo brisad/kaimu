@@ -9,6 +9,7 @@ import json
 import wx
 import zmq
 import uuid
+import functools
 from collections import namedtuple, MutableMapping
 from random import randrange
 from time import sleep
@@ -113,8 +114,10 @@ class Publisher(Thread):
     def run(self):
         while True:
             sleep(1)
-            s = json.dumps([FileItem("file %d" % x, None, x, "device %d" % x)
-                            for x in range(randrange(1, 12))],
+            s = json.dumps(
+                {'name': 'Thread',
+                 'data': [FileItem("file %d" % x, None, x, "device %d" % x)
+                                     for x in range(randrange(1, 12))]},
                            cls=FileListJSONEncoder)
             self.socket.send(s)
 
@@ -227,13 +230,19 @@ class FileListJSONEncoder(json.JSONEncoder):
                      "size": obj.size,
                      "hosting_device": obj.hosting_device }
 
+def serialize(data, name):
+    """Serialize shared files data to be sent."""
+
+    return json.dumps({'name': name, 'data': data}, cls=FileListJSONEncoder)
 
 def deserialize(s):
-    """Deserialize received data from subscriber to a FileList"""
+    """Deserialize received data from subscriber."""
 
-    items = [FileItem(item["name"], None, item["size"], item["hosting_device"])
-             for item in json.loads(s)]
-    return FileList(None, items)
+    received = json.loads(s)
+    received['data'] = [FileItem(item["name"], None, item["size"],
+                                 item["hosting_device"])
+                        for item in received['data']]
+    return received
 
 
 class MainFrame(wx.Frame):
@@ -359,7 +368,7 @@ class MainApp(wx.App):
     def OnTimer(self, event):
         files = self.subscriber.receive_files()
         if files is not None:
-            self.filelist.set_items(files)
+            self.filelist.set_items(files['data'])
 
         self.tracker.track()
 
@@ -377,7 +386,7 @@ class MainApp(wx.App):
                      self.announcer.name, port)
         # Create our interface to the publisher socket
         self.publisher = SharedFilesPublisher(
-            pubsock, lambda obj: json.dumps(obj, cls=FileListJSONEncoder))
+            pubsock, functools.partial(serialize, name=name))
 
     def _start_discover(self, context, discoversock):
         """Initialize discovery and subscription of services."""
