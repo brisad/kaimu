@@ -362,6 +362,7 @@ class MainApp(wx.App):
 
         self.shared_files = FileList(main_frame._populate_shared)
         self.shared_files.set_items([])
+        self.publisher_tick = 0
         self._start_timer()
         return 1
 
@@ -371,6 +372,11 @@ class MainApp(wx.App):
             self.remote_files[files['name']] = files['data']
 
         self.tracker.track()
+
+        self.publisher_tick += 1
+        if (self.publisher_tick > 20):
+            self.publisher.publish_files(self.shared_files)
+            self.publisher_tick = 0
 
     def _start_publish(self, context, name):
         """Initialize publishing of shared files."""
