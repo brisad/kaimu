@@ -5,6 +5,7 @@ import json
 import zmq
 from unittest import TestCase, main
 from mocker import MockerTestCase, expect, ANY
+import serialization
 from kaimu import FileList, RemoteFiles, \
     SharedFilesPublisher, DownloadableFilesSubscriber, FileListJSONEncoder, \
     ServiceTracker, service_discovery
@@ -197,6 +198,36 @@ class test_service_discovery(MockerTestCase):
 
         with service_discovery(context) as s:
             self.assertEqual(s, socket)
+
+
+class test_serialization(TestCase):
+    def assert_json_equal(self, str1, str2):
+        self.assertDictEqual(json.loads(str1), json.loads(str2))
+
+    def test_deserialize_request(self):
+        string = '{"method": "X", "params": [1, 2, 3, {"x": "y"}]}'
+        expected = serialization.Request("X", [1, 2, 3, {'x': 'y'}])
+        result = serialization.deserialize(string)
+        self.assertEqual(expected, result)
+
+    def test_deserialize_result(self):
+        string = '{"result": [1, 2, 3, {"x": "y"}]}'
+        expected = serialization.Response([1, 2, 3, {'x': 'y'}])
+        result = serialization.deserialize(string)
+        self.assertEqual(expected, result)
+
+    def test_serialize_request(self):
+        message = serialization.Request("Y", ['A', 'B', 'C'])
+        expected = '{"method": "Y", "params": ["A", "B", "C"]}'
+        string = serialization.serialize(message)
+
+        self.assert_json_equal(expected, string)
+
+    def test_serialize_result(self):
+        message = serialization.Response([1, 2, 3])
+        expected = '{"result": [1, 2, 3]}'
+        string = serialization.serialize(message)
+        self.assert_json_equal(expected, string)
 
 
 if __name__ == '__main__':
