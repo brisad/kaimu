@@ -229,6 +229,20 @@ class test_serialization(TestCase):
         string = serialization.serialize(message)
         self.assert_json_equal(expected, string)
 
+    def test_s_req(self):
+        """Test convenience method for serializing Request"""
+
+        expected = '{"method": "Z", "params": 100}'
+        result = serialization.s_req("Z", 100)
+        self.assert_json_equal(expected, result)
+
+    def test_s_res(self):
+        """Test convenience method for serializing Response"""
+
+        expected = '{"result": [1]}'
+        result = serialization.s_res([1])
+        self.assert_json_equal(expected, result)
+
 
 if __name__ == '__main__':
     main()

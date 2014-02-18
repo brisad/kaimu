@@ -9,6 +9,8 @@ Response -- contains one parameter, 'result'
 Functions:
 deserialize -- create Request or Response from json string
 serialize -- create json string from Request or Response
+s_req -- create Request from params and serialize
+s_res -- create Response from params and serialize
 
 """
 
@@ -28,3 +30,9 @@ def deserialize(serialized_message):
 
 def serialize(message):
     return json.dumps(dict(message.__dict__))
+
+def s_req(method, params):
+    return serialize(Request(method, params))
+
+def s_res(result):
+    return serialize(Response(result))
