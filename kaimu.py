@@ -238,7 +238,7 @@ def deserialize(s):
 
 
 class MainFrame(wx.Frame):
-    def __init__(self, publisher, *args, **kwds):
+    def __init__(self, kaimu_app, *args, **kwds):
         # begin wxGlade: MainFrame.__init__
         kwds["style"] = wx.DEFAULT_FRAME_STYLE
         wx.Frame.__init__(self, *args, **kwds)
@@ -257,7 +257,7 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_BUTTON, self.OnRemove, self.remove_file_btn)
         # end wxGlade
 
-        self.publisher = publisher
+        self.kaimu_app = kaimu_app
 
     def __set_properties(self):
         # begin wxGlade: MainFrame.__set_properties
@@ -294,7 +294,6 @@ class MainFrame(wx.Frame):
         self._populate_list_ctrl(self.filelist_ctrl, files)
 
     def _populate_shared(self, files):
-        self.shared_files = files
         self._populate_list_ctrl(self.shared_files_ctrl, files)
 
     def _populate_list_ctrl(self, ctrl, files):
@@ -327,56 +326,97 @@ class MainFrame(wx.Frame):
             item = {'name': name,
                     'path': path,
                     'size': os.path.getsize(path)}
-            self.shared_files.add_item(item)
+            self.kaimu_app.add_shared_file(item)
         dlg.Destroy()
-
-        self.publisher.publish_files(self.shared_files)
 
     def OnRemove(self, event):  # wxGlade: MainFrame.<event_handler>
         index = self._get_list_ctrl_selected_item(self.shared_files_ctrl)
         if index != -1:
             _id = self.shared_files_ctrl.GetItemData(index)
             item = self.shared_files_ctrl.datamap[_id]
-            self.shared_files.del_item(item)
-
-        self.publisher.publish_files(self.shared_files)
+            self.kaimu_app.remove_shared_file(item)
 
 
 # end of class MainFrame
 class MainApp(wx.App):
-    def __init__(self, context, discoversock, *args, **kwargs):
-        self.context = context
-        self.discoversock = discoversock
+    def __init__(self, kaimu_app, *args, **kwargs):
+        self.kaimu_app = kaimu_app
         super(MainApp, self).__init__(*args, **kwargs)
 
     def OnInit(self):
-        self._start_publish(self.context, platform.node())
-        self._start_discover(self.context, self.discoversock)
-
         wx.InitAllImageHandlers()
-        main_frame = MainFrame(self.publisher, None, -1, "")
+        main_frame = MainFrame(self.kaimu_app, None, -1, "")
         self.SetTopWindow(main_frame)
         main_frame.Show()
 
-        self.remote_files = RemoteFiles(main_frame._remote_files_update)
-
-        self.shared_files = FileList(main_frame._populate_shared)
-        self.shared_files.set_items([])
-        self.publisher_tick = 0
         self._start_timer()
+        self.main_frame = main_frame
         return 1
 
     def OnTimer(self, event):
-        files = self.subscriber.receive_files()
-        if files is not None:
-            self.remote_files[files['name']] = files['data']
+        self.kaimu_app.timer_event()
 
-        self.tracker.track()
+    def _start_timer(self):
+        timerid = wx.NewId()
+        self.timer = wx.Timer(self, timerid)
+        wx.EVT_TIMER(self, timerid, self.OnTimer)
+        self.timer.Start(150, False)
 
-        self.publisher_tick += 1
-        if (self.publisher_tick > 20):
-            self.publisher.publish_files(self.shared_files)
+    def on_shared_files_update(self, files):
+        self.main_frame._populate_shared(files)
+
+    def on_remote_files_update(self, files):
+        self.main_frame._remote_files_update(files)
+
+
+# end of class MainApp
+
+
+def ipc_name(prefix):
+    return "ipc://%s-%s" % (prefix,str(uuid.uuid4())[:13])
+
+@contextmanager
+def service_discovery(context):
+    """Utility context manager for starting service discovery."""
+
+    socket = context.socket(zmq.SUB)
+    socket.setsockopt(zmq.SUBSCRIBE, "")
+    addr = ipc_name("kaimubrowse")
+    socket.bind(addr)
+    browser = avahiservice.AvahiBrowser(context, addr)
+    logging.info("Starting AvahiBrowser")
+    browser.start()
+    yield socket
+    logging.info("Stopping AvahiBrowser")
+    browser.stop()
+    socket.close()
+
+
+class KaimuApp(object):
+    def __init__(self):
+        context = zmq.Context()
+        with service_discovery(context) as discoversock:
+            p = Publisher()
+            p.daemon = True
+            p.start()
+
             self.publisher_tick = 0
+            self.shared_files = FileList(None)
+            self.remote_files = RemoteFiles(None)
+
+            self._start_publish(context, platform.node())
+            self._start_discover(context, discoversock)
+
+            Kaimu = MainApp(self, redirect=False)
+
+            self.shared_files.listener = Kaimu.on_shared_files_update
+            self.remote_files.listener = Kaimu.on_remote_files_update
+
+            Kaimu.MainLoop()
+
+            logging.info("Stopping AvahiAnnouncer")
+            self.announcer.stop()
+            p.announcer.stop()
 
     def _start_publish(self, context, name):
         """Initialize publishing of shared files."""
@@ -402,53 +442,26 @@ class MainApp(wx.App):
         self.tracker = ServiceTracker(discoversock, subsock)
         self.subscriber = DownloadableFilesSubscriber(subsock, deserialize)
 
-    def _start_timer(self):
-        timerid = wx.NewId()
-        self.timer = wx.Timer(self, timerid)
-        wx.EVT_TIMER(self, timerid, self.OnTimer)
-        self.timer.Start(150, False)
+    def timer_event(self):
+        files = self.subscriber.receive_files()
+        if files is not None:
+            self.remote_files[files['name']] = files['data']
+
+        self.tracker.track()
+
+        self.publisher_tick += 1
+        if (self.publisher_tick > 20):
+            self.publisher.publish_files(self.shared_files)
+            self.publisher_tick = 0
+
+    def add_shared_file(self, fileitem):
+        self.shared_files.add_item(fileitem)
+        self.publisher.publish_files(self.shared_files)
+
+    def remove_shared_file(self, fileitem):
+        self.shared_files.del_item(fileitem)
+        self.publisher.publish_files(self.shared_files)
 
 
-# end of class MainApp
-
-
-def ipc_name(prefix):
-    return "ipc://%s-%s" % (prefix,str(uuid.uuid4())[:13])
-
-@contextmanager
-def service_discovery(context):
-    """Utility context manager for starting service discovery."""
-
-    socket = context.socket(zmq.SUB)
-    socket.setsockopt(zmq.SUBSCRIBE, "")
-    addr = ipc_name("kaimubrowse")
-    socket.bind(addr)
-    browser = avahiservice.AvahiBrowser(context, addr)
-    logging.info("Starting AvahiBrowser")
-    browser.start()
-    yield socket
-    logging.info("Stopping AvahiBrowser")
-    browser.stop()
-    socket.close()
-
-if __name__ == "__main__":
-    context = zmq.Context()
-
-    # Start service discovery already here so that it doesn't
-    # interfere with wxPython.
-    with service_discovery(context) as discoversock:
-
-        p = Publisher()
-        p.daemon = True
-        p.start()
-
-        Kaimu = MainApp(context, discoversock, redirect=False)
-        Kaimu.MainLoop()
-
-        # Since the Kaimu announcer is started in MainApp.OnInit, I'd
-        # rather see that it would be stopped in an OnDestroy method
-        # or similar, but since I haven't found any such method I do
-        # it here.
-        logging.info("Stopping AvahiAnnouncer")
-        Kaimu.announcer.stop()
-        p.announcer.stop()
+if __name__ == '__main__':
+    KaimuApp()
