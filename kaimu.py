@@ -16,6 +16,7 @@ from time import sleep
 from threading import Thread
 from contextlib import contextmanager
 import avahiservice
+from fileserver import FileServer, FileReader
 
 
 logging.basicConfig(level=logging.INFO)
@@ -226,10 +227,11 @@ class FileListJSONEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
-def serialize(data, name):
+def serialize(data, name, port):
     """Serialize shared files data to be sent."""
 
-    return json.dumps({'name': name, 'data': data}, cls=FileListJSONEncoder)
+    return json.dumps({'name': name, 'data': data, 'port': port},
+                      cls=FileListJSONEncoder)
 
 def deserialize(s):
     """Deserialize received data from subscriber."""
@@ -404,7 +406,10 @@ class KaimuApp(object):
             self.shared_files = FileList(None)
             self.remote_files = RemoteFiles(None)
 
-            self._start_publish(context, platform.node())
+            server = FileServer(context, "tcp://*:6777", reader=FileReader())
+            server.start()
+
+            self._start_publish(context, platform.node(), 6777)
             self._start_discover(context, discoversock)
 
             Kaimu = MainApp(self, redirect=False)
@@ -414,11 +419,13 @@ class KaimuApp(object):
 
             Kaimu.MainLoop()
 
+            server.stop()
+
             logging.info("Stopping AvahiAnnouncer")
             self.announcer.stop()
             p.announcer.stop()
 
-    def _start_publish(self, context, name):
+    def _start_publish(self, context, name, server_port):
         """Initialize publishing of shared files."""
 
         # Create publisher socket
@@ -432,7 +439,8 @@ class KaimuApp(object):
                      self.announcer.name, port)
         # Create our interface to the publisher socket
         self.publisher = SharedFilesPublisher(
-            pubsock, functools.partial(serialize, name=self.announcer.name))
+            pubsock, functools.partial(serialize, name=self.announcer.name,
+                                       port=server_port))
 
     def _start_discover(self, context, discoversock):
         """Initialize discovery and subscription of services."""
