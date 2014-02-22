@@ -179,8 +179,10 @@ class test_ServiceTracker(MockerTestCase):
         tracker = ServiceTracker(self.discoversock, subsock)
         tracker.track()
         self.assertEqual({"hostA": "tcp://192.168.0.10:1234"}, tracker.hosts)
-        tracker.track()
+        services = tracker.track()
         self.assertEqual({}, tracker.hosts)
+        self.assertListEqual([], services.new)
+        self.assertListEqual([["hostA"]], services.removed)
 
 
 class test_service_discovery(MockerTestCase):

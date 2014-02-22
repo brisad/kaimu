@@ -102,6 +102,8 @@ class ServiceTracker(object):
                 self.subsock.disconnect(self.hosts[name])
                 del self.hosts[name]
 
+        return services
+
 
 class Publisher(Thread):
     def __init__(self):
@@ -116,7 +118,7 @@ class Publisher(Thread):
         while True:
             sleep(1)
             s = json.dumps(
-                {'name': 'Thread',
+                {'name': self.announcer.name,
                  'data': [{'name': "file %d" % x, 'path': None, 'size': x}
                           for x in range(randrange(1, 12))]},
                 cls=FileListJSONEncoder)
@@ -451,11 +453,15 @@ class KaimuApp(object):
         self.subscriber = DownloadableFilesSubscriber(subsock, deserialize)
 
     def timer_event(self):
+        services = self.tracker.track()
+
+        # Clear a remote service's files if it has disappeared
+        for removed, in services.removed:
+            del self.remote_files[removed]
+
         files = self.subscriber.receive_files()
         if files is not None:
             self.remote_files[files['name']] = files['data']
-
-        self.tracker.track()
 
         self.publisher_tick += 1
         if (self.publisher_tick > 20):
