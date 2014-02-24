@@ -119,8 +119,9 @@ class Publisher(Thread):
             sleep(1)
             s = json.dumps(
                 {'name': self.announcer.name,
-                 'data': [{'name': "file %d" % x, 'path': None, 'size': x}
-                          for x in range(randrange(1, 12))]},
+                 'files': [{'name': "file %d" % x, 'path': None, 'size': x}
+                          for x in range(randrange(1, 12))],
+                 'port': -1},
                 cls=FileListJSONEncoder)
             self.socket.send(s)
 
@@ -184,8 +185,8 @@ class RemoteFiles(MutableMapping):
             self.listener(self)
 
     def all_files(self):
-        return [[host, file_] for host, files in sorted(self._dict.iteritems())
-                for file_ in files]
+        return [[host, file_] for host, data in sorted(self._dict.iteritems())
+                for file_ in data['files']]
 
     def __unicode__(self):
         return unicode(self._dict)
@@ -229,10 +230,10 @@ class FileListJSONEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
-def serialize(data, name, port):
+def serialize(files, name, port):
     """Serialize shared files data to be sent."""
 
-    return json.dumps({'name': name, 'data': data, 'port': port},
+    return json.dumps({'name': name, 'files': files, 'port': port},
                       cls=FileListJSONEncoder)
 
 def deserialize(s):
@@ -257,6 +258,7 @@ class MainFrame(wx.Frame):
         self.__set_properties()
         self.__do_layout()
 
+        self.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.OnActivate, self.filelist_ctrl)
         self.Bind(wx.EVT_BUTTON, self.OnAdd, self.add_file_btn)
         self.Bind(wx.EVT_BUTTON, self.OnRemove, self.remove_file_btn)
         # end wxGlade
@@ -341,6 +343,12 @@ class MainFrame(wx.Frame):
             self.kaimu_app.remove_shared_file(item)
 
 
+    def OnActivate(self, event):  # wxGlade: MainFrame.<event_handler>
+        item = self.filelist_ctrl.datamap[event.GetItem().GetData()]
+        self.kaimu_app.request_remote_file(item['hosting_device'],
+                                           item['name'])
+
+
 # end of class MainFrame
 class MainApp(wx.App):
     def __init__(self, kaimu_app, *args, **kwargs):
@@ -408,6 +416,8 @@ class KaimuApp(object):
             self.shared_files = FileList(None)
             self.remote_files = RemoteFiles(None)
 
+            self.addresses = {}
+
             server = FileServer(context, "tcp://*:6777", reader=FileReader())
             server.start()
 
@@ -455,13 +465,17 @@ class KaimuApp(object):
     def timer_event(self):
         services = self.tracker.track()
 
+        for name, addr, port in services.new:
+            self.addresses[name] = addr
+
         # Clear a remote service's files if it has disappeared
         for removed, in services.removed:
             del self.remote_files[removed]
 
         files = self.subscriber.receive_files()
         if files is not None:
-            self.remote_files[files['name']] = files['data']
+            self.remote_files[files['name']] = {k: files[k] for k
+                                                in ('files', 'port')}
 
         self.publisher_tick += 1
         if (self.publisher_tick > 20):
@@ -475,6 +489,11 @@ class KaimuApp(object):
     def remove_shared_file(self, fileitem):
         self.shared_files.del_item(fileitem)
         self.publisher.publish_files(self.shared_files)
+
+    def request_remote_file(self, device, name):
+        print "Request %s from %s" % (name, device),
+        print "(tcp://%s:%d)" % (self.addresses[device],
+                                 self.remote_files[device]['port'])
 
 
 if __name__ == '__main__':

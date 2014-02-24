@@ -49,25 +49,25 @@ class test_RemoteFiles(MockerTestCase):
         return f
 
     def test_add_item_notify(self):
-        self.assertNotify()['host1'] = ['file1', 'file2']
+        self.assertNotify()['host1'] = object()
 
     def test_del_item_notify(self):
         f = self.assertNotify()
-        f._dict['host1'] = ['file1', 'file2']  # Avoid notification here
+        f._dict['host1'] = object()  # Avoid notification here
         del f['host1']
 
     def test_all_files(self):
         f = RemoteFiles(None)
-        f['host1'] = ['file1', 'file2']
-        f['host2'] = ['file1']
+        f['host1'] = {'files': ['file1', 'file2'], 'port': 0}
+        f['host2'] = {'files': ['file1'], 'port': 1000}
         self.assertListEqual(
             [['host1', 'file1'], ['host1', 'file2'], ['host2', 'file1']],
             f.all_files())
 
     def test_str(self):
         f = RemoteFiles(None)
-        f['host1'] = ['file1', 'file2']
-        self.assertEqual("{'host1': ['file1', 'file2']}", str(f))
+        f['host1'] = [1, 2, 3]
+        self.assertEqual("{'host1': [1, 2, 3]}", str(f))
 
 
 class test_SharedFilesPublisher(MockerTestCase):
