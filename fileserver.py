@@ -24,6 +24,8 @@ class FileServer(threading.Thread):
         self.context = context
         self.frontend_addr = frontend_addr
         self.pipe = pipe
+        if reader is None:
+            reader = FileReader()
         self.reader = reader
         self._shared_files = []
 

@@ -16,7 +16,7 @@ from time import sleep
 from threading import Thread
 from contextlib import contextmanager
 import avahiservice
-from fileserver import FileServer, FileReader
+import fileserver
 
 
 logging.basicConfig(level=logging.INFO)
@@ -417,7 +417,7 @@ class KaimuApp(object):
 
             self.addresses = {}
 
-            server = FileServer(context, "tcp://*:6777", reader=FileReader())
+            server = fileserver.FileServer(context, "tcp://*:6777")
             server.start()
 
             self._start_publish(context, platform.node(), 6777)

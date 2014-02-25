@@ -514,7 +514,7 @@ class test_serialization(TestCase):
 class test_KaimuApp(TestCase):
     @patch('avahiservice.AvahiAnnouncer')
     @patch('avahiservice.AvahiBrowser')
-    @patch('kaimu.FileServer')
+    @patch('fileserver.FileServer')
     def test_start_stop(self, FileServer, AvahiBrowser, AvahiAnnouncer):
         UI = MagicMock()
         context = MagicMock()
