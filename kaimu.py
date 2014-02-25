@@ -353,7 +353,7 @@ class MainFrame(wx.Frame):
 class MainApp(wx.App):
     def __init__(self, kaimu_app, *args, **kwargs):
         self.kaimu_app = kaimu_app
-        super(MainApp, self).__init__(*args, **kwargs)
+        super(MainApp, self).__init__(*args, redirect=False, **kwargs)
 
     def OnInit(self):
         wx.InitAllImageHandlers()
@@ -405,8 +405,7 @@ def service_discovery(context):
 
 
 class KaimuApp(object):
-    def __init__(self):
-        context = zmq.Context()
+    def __init__(self, context, UI):
         with service_discovery(context) as discoversock:
             p = Publisher()
             p.daemon = True
@@ -424,7 +423,7 @@ class KaimuApp(object):
             self._start_publish(context, platform.node(), 6777)
             self._start_discover(context, discoversock)
 
-            Kaimu = MainApp(self, redirect=False)
+            Kaimu = UI(self)
 
             self.shared_files.listener = Kaimu.on_shared_files_update
             self.remote_files.listener = Kaimu.on_remote_files_update
@@ -497,4 +496,4 @@ class KaimuApp(object):
 
 
 if __name__ == '__main__':
-    KaimuApp()
+    KaimuApp(zmq.Context(), MainApp)

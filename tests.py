@@ -4,12 +4,13 @@
 import json
 import zmq
 from unittest import TestCase, main
+from mock import patch, Mock, MagicMock
 from mocker import MockerTestCase, expect, ANY
 import serialization
 from serialization import s_req, s_res
 from kaimu import FileList, RemoteFiles, \
     SharedFilesPublisher, DownloadableFilesSubscriber, FileListJSONEncoder, \
-    ServiceTracker, service_discovery
+    ServiceTracker, service_discovery, KaimuApp
 from fileserver import FileServer, FileReader
 
 
@@ -508,6 +509,36 @@ class test_serialization(TestCase):
         expected = '{"result": [1]}'
         result = serialization.s_res([1])
         self.assert_json_equal(expected, result)
+
+
+class test_KaimuApp(TestCase):
+    @patch('avahiservice.AvahiAnnouncer')
+    @patch('avahiservice.AvahiBrowser')
+    @patch('kaimu.FileServer')
+    def test_start_stop(self, FileServer, AvahiBrowser, AvahiAnnouncer):
+        UI = MagicMock()
+        context = MagicMock()
+
+        announcer = Mock()
+        AvahiAnnouncer.return_value = announcer
+
+        browser = Mock()
+        AvahiBrowser.return_value = browser
+
+        server = Mock()
+        FileServer.return_value = server
+
+        app = KaimuApp(context, UI)
+
+        # Debug publisher thread also uses the announcer
+        announcer.start.assert_called_with()
+        announcer.stop.assert_called_with()
+
+        browser.start.assert_called_once_with()
+        browser.stop.assert_called_once_with()
+
+        server.start.assert_called_once_with()
+        server.stop.assert_called_once_with()
 
 
 if __name__ == '__main__':
