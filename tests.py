@@ -272,6 +272,23 @@ class test_FileServer(MockerTestCase):
         result = f.get_files()
         self.assertEqual(['file1', 'file2'], result)
 
+    def test_get_bound_port(self):
+        """Test that get_files sends and recieves pipe messages"""
+
+        self.mocker.replay()
+
+        context = Mock()
+        pipe = Mock()
+
+        pipe.recv.return_value = s_res(6789)
+
+        f = FileServer(context, pipe=pipe)
+        result = f.get_bound_port()
+        self.assertEqual(6789, result)
+
+        pipe.send.assert_called_with(s_req('get_bound_port', None))
+        pipe.recv.assert_called_with()
+
     def test_stop(self):
         pipe = self.mocker.mock()
         pipe.send('STOP')
@@ -310,15 +327,14 @@ class test_FileServer(MockerTestCase):
 
         frontend = self.mocker.mock()
         expect(self.context.socket(zmq.ROUTER)).result(frontend)
-        frontend.bind("frontend")
+        frontend.bind("addr:1234")
 
         poller = self.Poller()
         poller.register(frontend, zmq.POLLIN)
         self.mocker.replay()
 
-        fs = FileServer(self.context, frontend_addr="frontend", pipe=object())
+        fs = FileServer(self.context, frontend_addr="addr:1234", pipe=object())
         fs.run(iterations=0, use_thread_pipe=False)
-
 
     # Test that messages dispatch calls to certain methods
 
@@ -433,6 +449,33 @@ class test_FileServer(MockerTestCase):
         self.assert_json_equal(
             '{"filename": "file.txt", "contents": "abc"}', reply)
 
+    def test_on_get_bound_port(self):
+        """Test that the port of the frontend can be retreived"""
+
+        self.mocker.replay()
+
+        context = Mock()
+        fs = FileServer(context, frontend_addr="tcp://*:1234", pipe=object())
+        fs.run(iterations=0, use_thread_pipe=False)
+        self.assertEqual(1234, fs.on_get_bound_port())
+
+    def test_on_get_bound_port_random(self):
+        """Test that bound port is randomized if needed"""
+
+        self.mocker.replay()
+
+        context = Mock()
+        socket = Mock()
+        context.socket.return_value = socket
+
+        socket.bind_to_random_port.return_value = 5566
+
+        fs = FileServer(context, pipe=object())
+        fs.run(iterations=0, use_thread_pipe=False)
+        self.assertEqual(5566, fs.on_get_bound_port())
+
+        socket.bind_to_random_port.assert_called_with("tcp://*")
+
 
 class test_FileReader(MockerTestCase):
     FILENAME = "file.txt"
@@ -526,6 +569,7 @@ class test_KaimuApp(TestCase):
         AvahiBrowser.return_value = browser
 
         server = Mock()
+        server.get_bound_port.return_value = 9999
         FileServer.return_value = server
 
         app = KaimuApp(context, UI)
@@ -538,6 +582,7 @@ class test_KaimuApp(TestCase):
         browser.stop.assert_called_once_with()
 
         server.start.assert_called_once_with()
+        server.get_bound_port.assert_called_once_with()
         server.stop.assert_called_once_with()
 
 

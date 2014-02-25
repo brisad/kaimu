@@ -28,6 +28,7 @@ class FileServer(threading.Thread):
             reader = FileReader()
         self.reader = reader
         self._shared_files = []
+        self._bound_port = None
 
         if not self.pipe:
             self.pipe = self.context.socket(zmq.PAIR)
@@ -41,7 +42,12 @@ class FileServer(threading.Thread):
         if use_frontend:
             if frontend is None:
                 frontend = self.context.socket(zmq.ROUTER)
-                frontend.bind(self.frontend_addr)
+                if self.frontend_addr:
+                    frontend.bind(self.frontend_addr)
+                    port_str = self.frontend_addr.rpartition(':')[-1]
+                    self._bound_port = int(port_str)
+                else:
+                    self._bound_port = frontend.bind_to_random_port("tcp://*")
             poller.register(frontend, zmq.POLLIN)
 
         if use_thread_pipe:
@@ -111,13 +117,21 @@ class FileServer(threading.Thread):
             return json.dumps(self.reader.read(filename))
         return '{"error": "file not found"}'
 
+    def get_bound_port(self):
+        self.pipe.send(serialization.s_req('get_bound_port', None))
+        response = self.pipe.recv()
+        return serialization.deserialize(response).result
+
+    def on_get_bound_port(self, dummy=None):
+        return self._bound_port
+
     def stop(self):
         self.pipe.send("STOP")
 
 
 if __name__ == '__main__':
     context = zmq.Context()
-    server = FileServer(context, "tcp://*:6777", reader=FileReader())
+    server = FileServer(context)
     server.start()
 
     server.add_file("tests.py")
@@ -126,11 +140,14 @@ if __name__ == '__main__':
     server.remove_file("README.md")
     print server.get_files()
 
+    serverport = server.get_bound_port()
+    print serverport
+
     try:
         req = raw_input()
         while True:
             s = context.socket(zmq.DEALER)
-            s.connect("tcp://localhost:6777")
+            s.connect("tcp://localhost:%d" % serverport)
             msg = '{"request": "%s"}' % req
             print "Sending:", msg
             s.send(msg)

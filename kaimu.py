@@ -417,10 +417,11 @@ class KaimuApp(object):
 
             self.addresses = {}
 
-            server = fileserver.FileServer(context, "tcp://*:6777")
+            server = fileserver.FileServer(context)
             server.start()
-
-            self._start_publish(context, platform.node(), 6777)
+            fileserver_port = server.get_bound_port()
+            logging.info("File server running on port %d" % fileserver_port)
+            self._start_publish(context, platform.node(), fileserver_port)
             self._start_discover(context, discoversock)
 
             Kaimu = UI(self)
