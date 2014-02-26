@@ -205,21 +205,9 @@ class test_service_discovery(MockerTestCase):
             self.assertEqual(s, socket)
 
 
-class test_FileServer(MockerTestCase):
+class test_FileServer(TestCase):
     def setUp(self):
-        self.context = self.mocker.mock()
-        self.Poller = self.mocker.replace("zmq.Poller")
-
-    def add_data_to_receive(self, poller, socket, recv_data):
-        expect(poller.poll(0)).result({socket: zmq.POLLIN})
-        for msg in recv_data:
-            expect(socket.recv()).result(msg)
-
-    def expect_multipart_reply(self, socket, reply):
-        socket.send_multipart(reply)
-
-    def expect_reply(self, socket, reply):
-        socket.send(reply)
+        self.context = Mock()
 
     def assert_json_equal(self, str1, str2):
         self.assertDictEqual(json.loads(str1), json.loads(str2))
@@ -229,60 +217,58 @@ class test_FileServer(MockerTestCase):
     def test_add_file(self):
         """Test that add_file sends and recieves pipe messages"""
 
-        pipe = self.mocker.mock()
-        pipe.send(s_req('add_file', 'file'))
-        pipe.recv()
-        self.mocker.replay()
+        pipe = Mock()
+        pipe.recv.return_value = None
 
         f = FileServer(self.context, pipe=pipe)
         f.add_file('file')
 
+        pipe.recv.assert_called_once_with()
+        pipe.send.assert_called_once_with(s_req('add_file', 'file'))
+
     def test_add_file_collision_throws_error(self):
-        pipe = self.mocker.mock()
-        pipe.send(s_req('add_file', 'file'))
-        pipe.send(s_req('add_file', 'file'))
-        expect(pipe.recv()).result(s_res(True))
-        expect(pipe.recv()).result(s_res(False))
-        self.mocker.replay()
+        pipe = Mock()
+        pipe.recv.side_effect = [s_res(True), s_res(False)]
 
         f = FileServer(self.context, pipe=pipe)
         f.add_file('file')
         self.assertRaises(IndexError, f.add_file, 'file')
 
+        pipe.recv.assert_called_with()
+        pipe.send.assert_called_with(s_req('add_file', 'file'))
+        self.assertEqual(2, pipe.recv.call_count)
+        self.assertEqual(2, pipe.send.call_count)
+
     def test_remove_file(self):
         """Test that remove_file sends and recieves pipe messages"""
 
-        pipe = self.mocker.mock()
-        pipe.send(s_req('remove_file', 'file'))
-        pipe.recv()
-        self.mocker.replay()
+        pipe = Mock()
 
         f = FileServer(self.context, pipe=pipe)
         f.remove_file('file')
 
+        pipe.recv.assert_called_once_with()
+        pipe.send.assert_called_once_with(s_req('remove_file', 'file'))
+
     def test_get_files(self):
         """Test that get_files sends and recieves pipe messages"""
 
-        pipe = self.mocker.mock()
-        pipe.send(s_req('get_files', None))
-        expect(pipe.recv()).result(s_res(['file1', 'file2']))
-        self.mocker.replay()
+        pipe = Mock()
+        pipe.recv.return_value = s_res(['file1', 'file2'])
 
         f = FileServer(self.context, pipe=pipe)
         result = f.get_files()
         self.assertEqual(['file1', 'file2'], result)
 
+        pipe.send.assert_called_once_with(s_req('get_files', None))
+
     def test_get_bound_port(self):
         """Test that get_files sends and recieves pipe messages"""
 
-        self.mocker.replay()
-
-        context = Mock()
         pipe = Mock()
-
         pipe.recv.return_value = s_res(6789)
 
-        f = FileServer(context, pipe=pipe)
+        f = FileServer(self.context, pipe=pipe)
         result = f.get_bound_port()
         self.assertEqual(6789, result)
 
@@ -290,138 +276,128 @@ class test_FileServer(MockerTestCase):
         pipe.recv.assert_called_with()
 
     def test_stop(self):
-        pipe = self.mocker.mock()
-        pipe.send('STOP')
-        self.mocker.replay()
+        pipe = Mock()
 
         f = FileServer(self.context, pipe=pipe)
         f.stop()
 
+        pipe.send.assert_called_once_with('STOP')
+
     # Test pipe/socket creation
 
     def test_pipe_creation(self):
-        """Test control pipe creation in callers thread context"""
+        """Test control pipe creation in thread context of caller"""
 
-        pipe = self.context.socket(zmq.PAIR)
-        pipe.bind("inproc://fs-pipe")
-        self.mocker.replay()
+        pipe = self.context.socket.return_value
 
         FileServer(self.context)
 
-    def test_creation_pipe_in_thread_context(self):
+        self.context.socket.assert_called_once_with(zmq.PAIR)
+        pipe.bind.assert_called_once_with("inproc://fs-pipe")
+
+    @patch('zmq.Poller')
+    def test_creation_pipe_in_thread_context(self, Poller):
         """Test control pipe creation in thread's context"""
 
-        pipe = self.mocker.mock()
-        expect(self.context.socket(zmq.PAIR)).result(pipe)
-        pipe.connect("inproc://fs-pipe")
-
-        poller = self.Poller()
-        poller.register(pipe, zmq.POLLIN)
-        self.mocker.replay()
+        pipe = self.context.socket.return_value
 
         fs = FileServer(self.context, pipe=object())
         fs.run(iterations=0, use_frontend=False)
 
-    def test_creation_frontend_in_thread_context(self):
+        Poller.return_value.register.assert_called_once_with(pipe,
+                                                             zmq.POLLIN)
+        self.context.socket.assert_called_once_with(zmq.PAIR)
+        pipe.connect.assert_called_once_with("inproc://fs-pipe")
+
+    @patch('zmq.Poller')
+    def test_creation_frontend_in_thread_context(self, Poller):
         """Test socket creation in thread's context"""
 
-        frontend = self.mocker.mock()
-        expect(self.context.socket(zmq.ROUTER)).result(frontend)
-        frontend.bind("addr:1234")
-
-        poller = self.Poller()
-        poller.register(frontend, zmq.POLLIN)
-        self.mocker.replay()
+        frontend = self.context.socket.return_value
 
         fs = FileServer(self.context, frontend_addr="addr:1234", pipe=object())
         fs.run(iterations=0, use_thread_pipe=False)
 
+        Poller.return_value.register.assert_called_once_with(frontend,
+                                                             zmq.POLLIN)
+        self.context.socket.assert_called_once_with(zmq.ROUTER)
+        frontend.bind.assert_called_once_with("addr:1234")
+
     # Test that messages dispatch calls to certain methods
 
-    def test_pipe_stop(self):
-        thread_pipe = self.mocker.mock()
-        self.add_data_to_receive(self.Poller(), thread_pipe, ["STOP"])
+    @patch('zmq.Poller')
+    def test_pipe_stop(self, Poller):
 
-        self.mocker.replay()
+        thread_pipe = Mock()
+        Poller.return_value.poll.return_value = {thread_pipe: zmq.POLLIN}
+
+        thread_pipe.recv.side_effect = ["STOP"]
 
         fs = FileServer(self.context, pipe=object())
         fs.run(thread_pipe=thread_pipe, use_frontend=False)
 
-    def test_frontend_message_dispatch(self):
+    @patch('zmq.Poller')
+    def test_frontend_message_dispatch(self, Poller):
         """Test that socket messages go to the right method"""
 
-        frontend = self.mocker.mock()
+        frontend = Mock()
+        Poller.return_value.poll.return_value = {frontend: zmq.POLLIN}
 
-        poller = self.Poller()
-        poller.register(frontend, zmq.POLLIN)
-        self.add_data_to_receive(poller, frontend, ["id", "message"])
-        self.expect_multipart_reply(frontend, ANY)
-
-        on_frontend_message = self.mocker.mock()
-        on_frontend_message("message")
-
-        self.mocker.replay()
+        frontend.recv.side_effect = ["id", "message"]
 
         fs = FileServer(self.context, pipe=object())
-        fs.on_frontend_message = on_frontend_message
+        fs.on_frontend_message = Mock()
         fs.run(iterations=1, frontend=frontend, use_thread_pipe=False)
 
-    def test_frontend_reply(self):
+        fs.on_frontend_message.assert_called_once_with("message")
+
+    @patch('zmq.Poller')
+    def test_frontend_reply(self, Poller):
         """Test that server send message on socket back to client"""
 
-        frontend = self.mocker.mock()
+        frontend = Mock()
+        Poller.return_value.poll.return_value = {frontend: zmq.POLLIN}
 
-        poller = self.Poller()
-        poller.register(frontend, zmq.POLLIN)
-        self.add_data_to_receive(poller, frontend, ["id", "message"])
-        self.expect_multipart_reply(frontend, ["id", "reply"])
-
-        on_frontend_message = self.mocker.mock()
-        expect(on_frontend_message("message")).result("reply")
-
-        self.mocker.replay()
+        frontend.recv.side_effect = ["id", "message"]
 
         fs = FileServer(self.context, pipe=object())
-        fs.on_frontend_message = on_frontend_message
+        fs.on_frontend_message = Mock(return_value="reply")
         fs.run(iterations=1, frontend=frontend, use_thread_pipe=False)
 
-    def test_pipe_method_dispatch_and_reply(self):
+        fs.on_frontend_message.assert_called_once_with("message")
+        frontend.send_multipart.assert_called_once_with(["id", "reply"])
+
+    @patch('zmq.Poller')
+    def test_pipe_method_dispatch_and_reply(self, Poller):
         """Test that pipe message calls method and sends reply"""
 
-        thread_pipe = self.mocker.mock()
-        on_pipe_abc = self.mocker.mock()
+        thread_pipe = Mock()
+        Poller.return_value.poll.return_value = {thread_pipe: zmq.POLLIN}
 
-        self.add_data_to_receive(self.Poller(), thread_pipe,
-                                 [s_req('pipe_abc', 'X')])
-        self.expect_reply(thread_pipe, s_res(["fine", "reply"]))
-        expect(on_pipe_abc('X')).result(["fine", "reply"])
-        self.mocker.replay()
+        thread_pipe.recv.side_effect = [s_req('pipe_abc', 'X')]
 
         fs = FileServer(self.context, pipe=object())
-        fs.on_pipe_abc = on_pipe_abc
+        fs.on_pipe_abc = Mock(return_value=["fine", "reply"])
         fs.run(iterations=1, thread_pipe=thread_pipe, use_frontend=False)
+
+        fs.on_pipe_abc.assert_called_once_with('X')
+        thread_pipe.send.assert_called_once_with(s_res(["fine", "reply"]))
 
     # Test methods dispatched from messages
 
     def test_on_add_file(self):
-        self.mocker.replay()
-
         fs = FileServer(self.context, pipe=object())
         fs.on_add_file('/file1')
         fs.on_add_file('/file2')
         self.assertTupleEqual(('/file1', '/file2'), fs.on_get_files())
 
     def test_on_add_file_collision(self):
-        self.mocker.replay()
-
         fs = FileServer(self.context, pipe=object())
         self.assertTrue(fs.on_add_file('/file1'))
         self.assertFalse(fs.on_add_file('/file1'))
         self.assertTupleEqual(('/file1',), fs.on_get_files())
 
     def test_on_remove_file(self):
-        self.mocker.replay()
-
         fs = FileServer(self.context, pipe=object())
         fs.on_add_file('/file1')
         fs.on_add_file('/file2')
@@ -429,8 +405,6 @@ class test_FileServer(MockerTestCase):
         self.assertTupleEqual(('/file2',), fs.on_get_files())
 
     def test_on_frontend_message_file_not_found(self):
-        self.mocker.replay()
-
         fs = FileServer(self.context, pipe=object())
         reply = fs.on_frontend_message('{"request": "filename.txt"}')
         self.assertEqual('{"error": "file not found"}', reply)
@@ -438,10 +412,9 @@ class test_FileServer(MockerTestCase):
     def test_on_frontend_message_file_transferred(self):
         """Test that a file is transferred on request"""
 
-        filereader = self.mocker.mock()
-        expect(filereader.read('file.txt')).result(
-            {'filename': 'file.txt', 'contents': 'abc'})
-        self.mocker.replay()
+        filereader = Mock()
+        filereader.read.return_value = {'filename': 'file.txt',
+                                        'contents': 'abc'}
 
         fs = FileServer(self.context, pipe=object(), reader=filereader)
         fs.on_add_file('file.txt')
@@ -452,25 +425,19 @@ class test_FileServer(MockerTestCase):
     def test_on_get_bound_port(self):
         """Test that the port of the frontend can be retreived"""
 
-        self.mocker.replay()
-
-        context = Mock()
-        fs = FileServer(context, frontend_addr="tcp://*:1234", pipe=object())
+        fs = FileServer(self.context, frontend_addr="tcp://*:1234",
+                        pipe=object())
         fs.run(iterations=0, use_thread_pipe=False)
         self.assertEqual(1234, fs.on_get_bound_port())
 
     def test_on_get_bound_port_random(self):
         """Test that bound port is randomized if needed"""
 
-        self.mocker.replay()
-
-        context = Mock()
-        socket = Mock()
-        context.socket.return_value = socket
+        socket = self.context.socket.return_value
 
         socket.bind_to_random_port.return_value = 5566
 
-        fs = FileServer(context, pipe=object())
+        fs = FileServer(self.context, pipe=object())
         fs.run(iterations=0, use_thread_pipe=False)
         self.assertEqual(5566, fs.on_get_bound_port())
 
