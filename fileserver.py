@@ -1,5 +1,6 @@
 import itertools
 import threading
+import os
 import json
 import sys
 import zmq
@@ -127,6 +128,14 @@ class FileServer(threading.Thread):
 
     def stop(self):
         self.pipe.send("STOP")
+
+
+class Downloader(object):
+    def __init__(self, endpoint, filename):
+        self.destination = os.getcwd()
+
+    def is_downloaded(self):
+        return False
 
 
 if __name__ == '__main__':

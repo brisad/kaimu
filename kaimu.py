@@ -406,7 +406,12 @@ def service_discovery(context):
 
 class KaimuApp(object):
     def __init__(self, context, UI):
-        with service_discovery(context) as discoversock:
+        self.context = context
+        self.UI = UI
+        self.addresses = {}
+
+    def run(self):
+        with service_discovery(self.context) as discoversock:
             p = Publisher()
             p.daemon = True
             p.start()
@@ -415,16 +420,14 @@ class KaimuApp(object):
             self.shared_files = FileList(None)
             self.remote_files = RemoteFiles(None)
 
-            self.addresses = {}
-
-            server = fileserver.FileServer(context)
+            server = fileserver.FileServer(self.context)
             server.start()
             fileserver_port = server.get_bound_port()
             logging.info("File server running on port %d" % fileserver_port)
-            self._start_publish(context, platform.node(), fileserver_port)
-            self._start_discover(context, discoversock)
+            self._start_publish(self.context, platform.node(), fileserver_port)
+            self._start_discover(self.context, discoversock)
 
-            Kaimu = UI(self)
+            Kaimu = self.UI(self)
 
             self.shared_files.listener = Kaimu.on_shared_files_update
             self.remote_files.listener = Kaimu.on_remote_files_update
@@ -483,6 +486,12 @@ class KaimuApp(object):
             self.publisher_tick = 0
 
     def add_shared_file(self, fileitem):
+        """Add file to list of shared files
+
+        fileitem is expected to be a dictionary containing the fields
+        name, path, and size.
+        """
+
         self.shared_files.add_item(fileitem)
         self.publisher.publish_files(self.shared_files)
 
@@ -490,11 +499,19 @@ class KaimuApp(object):
         self.shared_files.del_item(fileitem)
         self.publisher.publish_files(self.shared_files)
 
-    def request_remote_file(self, device, name):
-        print "Request %s from %s" % (name, device),
-        print "(tcp://%s:%d)" % (self.addresses[device],
-                                 self.remote_files[device]['port'])
+    def request_remote_file(self, device, filename):
+        logging.info("Request remote file '%s' from '%s'" % (filename, device))
+        try:
+            endpoint = "tcp://%s:%d" % (self.addresses[device],
+                                        self.remote_files[device]['port'])
+            downloader = fileserver.Downloader(endpoint, filename)
+        except KeyError:
+            return False
+
+        logging.info("Starting download from %s" % endpoint)
+        return True
+
 
 
 if __name__ == '__main__':
-    KaimuApp(zmq.Context(), MainApp)
+    KaimuApp(zmq.Context(), MainApp).run()

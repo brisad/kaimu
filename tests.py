@@ -11,7 +11,7 @@ from serialization import s_req, s_res
 from kaimu import FileList, RemoteFiles, \
     SharedFilesPublisher, DownloadableFilesSubscriber, FileListJSONEncoder, \
     ServiceTracker, service_discovery, KaimuApp
-from fileserver import FileServer, FileReader
+from fileserver import FileServer, FileReader, Downloader
 
 
 class test_FileList(MockerTestCase):
@@ -477,6 +477,14 @@ class test_FileReader(MockerTestCase):
                           "contents": self.CONTENTS}, result)
 
 
+class test_Downloader(TestCase):
+    @patch('os.getcwd')
+    def test_creation(self, getcwd):
+        d = Downloader("endpoint", "filename")
+        self.assertEqual(getcwd.return_value, d.destination)
+        self.assertFalse(d.is_downloaded())
+
+
 class test_serialization(TestCase):
     def assert_json_equal(self, str1, str2):
         self.assertDictEqual(json.loads(str1), json.loads(str2))
@@ -522,12 +530,15 @@ class test_serialization(TestCase):
 
 
 class test_KaimuApp(TestCase):
+    def setUp(self):
+        UI = MagicMock()
+        context = MagicMock()
+        self.app = KaimuApp(context, UI)
+
     @patch('avahiservice.AvahiAnnouncer')
     @patch('avahiservice.AvahiBrowser')
     @patch('fileserver.FileServer')
     def test_start_stop(self, FileServer, AvahiBrowser, AvahiAnnouncer):
-        UI = MagicMock()
-        context = MagicMock()
 
         announcer = Mock()
         AvahiAnnouncer.return_value = announcer
@@ -539,7 +550,7 @@ class test_KaimuApp(TestCase):
         server.get_bound_port.return_value = 9999
         FileServer.return_value = server
 
-        app = KaimuApp(context, UI)
+        self.app.run()
 
         # Debug publisher thread also uses the announcer
         announcer.start.assert_called_with()
@@ -551,6 +562,20 @@ class test_KaimuApp(TestCase):
         server.start.assert_called_once_with()
         server.get_bound_port.assert_called_once_with()
         server.stop.assert_called_once_with()
+
+    def test_request_remote_file_invalid(self):
+        success = self.app.request_remote_file('bogus', 'file.txt')
+        self.assertFalse(success)
+
+    @patch('fileserver.Downloader')
+    def test_request_remote_file_valid(self, Downloader):
+
+        self.app.addresses = {'device': '1.2.3.4'}
+        self.app.remote_files = {'device': {'port': 5678}}
+        success = self.app.request_remote_file('device', 'file.txt')
+        self.assertTrue(success)
+
+        Downloader.assert_called_once_with('tcp://1.2.3.4:5678', 'file.txt')
 
 
 if __name__ == '__main__':
