@@ -625,13 +625,8 @@ class test_KaimuApp(TestCase):
         self.app.publisher.publish_files.assert_called_once_with(
             self.app.shared_files)
 
-    def test_request_remote_file_invalid(self):
-        success = self.app.request_remote_file('bogus', 'file.txt')
-        self.assertFalse(success)
-
     @patch('fileserver.Downloader')
     def test_request_remote_file_valid(self, Downloader):
-
         downloader = Downloader.return_value
 
         self.app.addresses = {'device': '1.2.3.4'}

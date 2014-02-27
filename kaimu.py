@@ -509,17 +509,13 @@ class KaimuApp(object):
 
     def request_remote_file(self, device, filename):
         logging.info("Request remote file '%s' from '%s'" % (filename, device))
-        try:
-            endpoint = "tcp://%s:%d" % (self.addresses[device],
-                                        self.remote_files[device]['port'])
-            downloader = fileserver.Downloader(self.context,
-                                               endpoint, filename)
-        except KeyError:
-            return False
+        endpoint = "tcp://%s:%d" % (self.addresses[device],
+                                    self.remote_files[device]['port'])
+        downloader = fileserver.Downloader(self.context, endpoint, filename)
 
         logging.info("Starting download from %s" % endpoint)
-        downloader.download()
-        return True
+        success = downloader.download()
+        return success
 
 
 
