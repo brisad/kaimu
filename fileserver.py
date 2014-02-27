@@ -143,8 +143,18 @@ class Downloader(object):
         socket.connect(self.endpoint)
         msg = '{"request": "%s"}' % self.filename
         socket.send(msg.encode('utf-8'))
-        socket.recv()
+        response = socket.recv()
+        try:
+            message = json.loads(response)
+        except:
+            self.failure_reason = "Invalid data received from server"
+            return False
+
+        if 'error' in message:
+            self.failure_reason = message['error']
+            return False
         self.has_downloaded = True
+        return True
 
 
 if __name__ == '__main__':

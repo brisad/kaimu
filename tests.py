@@ -478,24 +478,56 @@ class test_FileReader(MockerTestCase):
 
 
 class test_Downloader(TestCase):
+    def setUp(self):
+        self.context = Mock()
+        self.socket = self.context.socket.return_value
+        self.d = Downloader(self.context, "endpoint", "filename")
+
     @patch('os.getcwd')
     def test_creation(self, getcwd):
-        d = Downloader(None, "endpoint", "filename")
-        self.assertEqual(getcwd.return_value, d.destination)
-        self.assertFalse(d.has_downloaded)
+        self.d = Downloader(self.context, "endpoint", "filename")
+        self.assertEqual(getcwd.return_value, self.d.destination)
+        self.assertFalse(self.d.has_downloaded)
 
     def test_download(self):
-        context = Mock()
-        socket = context.socket.return_value
+        self.socket.recv.return_value = '{"contents": "nothing"}'
 
-        d = Downloader(context, "endpoint", "filename")
-        d.download()
-        self.assertTrue(d.has_downloaded)
+        self.d.download()
+        self.assertTrue(self.d.has_downloaded)
 
-        context.socket.assert_called_once_with(zmq.DEALER)
-        socket.connect.assert_called_once_with("endpoint")
-        socket.send.assert_called_once_with('{"request": "filename"}')
-        socket.recv.assert_called_once_with()
+        self.context.socket.assert_called_once_with(zmq.DEALER)
+        self.socket.connect.assert_called_once_with("endpoint")
+        self.socket.send.assert_called_once_with('{"request": "filename"}')
+        self.socket.recv.assert_called_once_with()
+
+    def test_download_error(self):
+        self.socket.recv.return_value = '{"error": "file not found"}'
+
+        success = self.d.download()
+
+        self.assertFalse(success)
+        self.assertFalse(self.d.has_downloaded)
+        self.assertEqual("file not found", self.d.failure_reason)
+
+        self.context.socket.assert_called_once_with(zmq.DEALER)
+        self.socket.connect.assert_called_once_with("endpoint")
+        self.socket.send.assert_called_once_with('{"request": "filename"}')
+        self.socket.recv.assert_called_once_with()
+
+    def test_download_error_no_json_data(self):
+        self.socket.recv.return_value = {}
+
+        success = self.d.download()
+
+        self.assertFalse(success)
+        self.assertFalse(self.d.has_downloaded)
+        self.assertEqual("Invalid data received from server",
+                         self.d.failure_reason)
+
+        self.context.socket.assert_called_once_with(zmq.DEALER)
+        self.socket.connect.assert_called_once_with("endpoint")
+        self.socket.send.assert_called_once_with('{"request": "filename"}')
+        self.socket.recv.assert_called_once_with()
 
 
 class test_serialization(TestCase):
