@@ -131,11 +131,20 @@ class FileServer(threading.Thread):
 
 
 class Downloader(object):
-    def __init__(self, endpoint, filename):
+    def __init__(self, context, endpoint, filename):
+        self.context = context
+        self.endpoint = endpoint
+        self.filename = filename
         self.destination = os.getcwd()
+        self.has_downloaded = False
 
-    def is_downloaded(self):
-        return False
+    def download(self):
+        socket = self.context.socket(zmq.DEALER)
+        socket.connect(self.endpoint)
+        msg = '{"request": "%s"}' % self.filename
+        socket.send(msg.encode('utf-8'))
+        socket.recv()
+        self.has_downloaded = True
 
 
 if __name__ == '__main__':

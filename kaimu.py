@@ -420,9 +420,9 @@ class KaimuApp(object):
             self.shared_files = FileList(None)
             self.remote_files = RemoteFiles(None)
 
-            server = fileserver.FileServer(self.context)
-            server.start()
-            fileserver_port = server.get_bound_port()
+            self.fileserver = fileserver.FileServer(self.context)
+            self.fileserver.start()
+            fileserver_port = self.fileserver.get_bound_port()
             logging.info("File server running on port %d" % fileserver_port)
             self._start_publish(self.context, platform.node(), fileserver_port)
             self._start_discover(self.context, discoversock)
@@ -434,7 +434,7 @@ class KaimuApp(object):
 
             Kaimu.MainLoop()
 
-            server.stop()
+            self.fileserver.stop()
 
             logging.info("Stopping AvahiAnnouncer")
             self.announcer.stop()
@@ -493,10 +493,18 @@ class KaimuApp(object):
         """
 
         self.shared_files.add_item(fileitem)
+        self.fileserver.add_file(fileitem['name'])
         self.publisher.publish_files(self.shared_files)
 
     def remove_shared_file(self, fileitem):
+        """Remove file from list of shared files
+
+        fileitem has to be equal to an object previously added with
+        add_shared_file.
+        """
+
         self.shared_files.del_item(fileitem)
+        self.fileserver.remove_file(fileitem['name'])
         self.publisher.publish_files(self.shared_files)
 
     def request_remote_file(self, device, filename):
@@ -504,11 +512,13 @@ class KaimuApp(object):
         try:
             endpoint = "tcp://%s:%d" % (self.addresses[device],
                                         self.remote_files[device]['port'])
-            downloader = fileserver.Downloader(endpoint, filename)
+            downloader = fileserver.Downloader(self.context,
+                                               endpoint, filename)
         except KeyError:
             return False
 
         logging.info("Starting download from %s" % endpoint)
+        downloader.download()
         return True
 
 

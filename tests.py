@@ -480,9 +480,22 @@ class test_FileReader(MockerTestCase):
 class test_Downloader(TestCase):
     @patch('os.getcwd')
     def test_creation(self, getcwd):
-        d = Downloader("endpoint", "filename")
+        d = Downloader(None, "endpoint", "filename")
         self.assertEqual(getcwd.return_value, d.destination)
-        self.assertFalse(d.is_downloaded())
+        self.assertFalse(d.has_downloaded)
+
+    def test_download(self):
+        context = Mock()
+        socket = context.socket.return_value
+
+        d = Downloader(context, "endpoint", "filename")
+        d.download()
+        self.assertTrue(d.has_downloaded)
+
+        context.socket.assert_called_once_with(zmq.DEALER)
+        socket.connect.assert_called_once_with("endpoint")
+        socket.send.assert_called_once_with('{"request": "filename"}')
+        socket.recv.assert_called_once_with()
 
 
 class test_serialization(TestCase):
@@ -531,9 +544,9 @@ class test_serialization(TestCase):
 
 class test_KaimuApp(TestCase):
     def setUp(self):
-        UI = MagicMock()
-        context = MagicMock()
-        self.app = KaimuApp(context, UI)
+        UI = Mock()
+        self.context = MagicMock()
+        self.app = KaimuApp(self.context, UI)
 
     @patch('avahiservice.AvahiAnnouncer')
     @patch('avahiservice.AvahiBrowser')
@@ -563,6 +576,32 @@ class test_KaimuApp(TestCase):
         server.get_bound_port.assert_called_once_with()
         server.stop.assert_called_once_with()
 
+    def test_add_shared_file(self):
+        fileitem = {'name': 'file.txt'}
+        self.app.shared_files = Mock()
+        self.app.fileserver = Mock()
+        self.app.publisher = Mock()
+
+        self.app.add_shared_file(fileitem)
+
+        self.app.shared_files.add_item.assert_called_once_with(fileitem)
+        self.app.fileserver.add_file.assert_called_once_with('file.txt')
+        self.app.publisher.publish_files.assert_called_once_with(
+            self.app.shared_files)
+
+    def test_remove_shared_file(self):
+        fileitem = {'name': 'file.txt'}
+        self.app.shared_files = Mock()
+        self.app.fileserver = Mock()
+        self.app.publisher = Mock()
+
+        self.app.remove_shared_file(fileitem)
+
+        self.app.shared_files.del_item.assert_called_once_with(fileitem)
+        self.app.fileserver.remove_file.assert_called_once_with('file.txt')
+        self.app.publisher.publish_files.assert_called_once_with(
+            self.app.shared_files)
+
     def test_request_remote_file_invalid(self):
         success = self.app.request_remote_file('bogus', 'file.txt')
         self.assertFalse(success)
@@ -570,12 +609,16 @@ class test_KaimuApp(TestCase):
     @patch('fileserver.Downloader')
     def test_request_remote_file_valid(self, Downloader):
 
+        downloader = Downloader.return_value
+
         self.app.addresses = {'device': '1.2.3.4'}
         self.app.remote_files = {'device': {'port': 5678}}
         success = self.app.request_remote_file('device', 'file.txt')
         self.assertTrue(success)
 
-        Downloader.assert_called_once_with('tcp://1.2.3.4:5678', 'file.txt')
+        Downloader.assert_called_once_with(self.context,
+                                           'tcp://1.2.3.4:5678', 'file.txt')
+        downloader.download.assert_called_once_with()
 
 
 if __name__ == '__main__':
