@@ -19,7 +19,9 @@ import avahiservice
 import fileserver
 
 
-logging.basicConfig(level=logging.INFO)
+if __name__ == '__main__':
+    logging.basicConfig(format="[%(asctime)s] %(levelname)s:%(message)s",
+                        level=logging.INFO)
 
 # Add disconnect method to socket if zmq version is less than 3.2.
 # Disconnect is used by ServiceTracker when a service disappears and
