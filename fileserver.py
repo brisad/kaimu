@@ -8,12 +8,10 @@ import serialization
 
 
 class FileReader(object):
-    def __init__(self, open_func=open):
-        self.open_func = open_func
-
     def read(self, filename):
         try:
-            data = self.open_func(filename).read()
+            with open(filename) as f:
+                data = f.read()
         except IOError:
             return {"error": "read error"}
         return {"filename": filename, "contents": data}

@@ -444,37 +444,41 @@ class test_FileServer(TestCase):
         socket.bind_to_random_port.assert_called_with("tcp://*")
 
 
-class test_FileReader(MockerTestCase):
+@patch('fileserver.open', create=True)
+class test_FileReader(TestCase):
     FILENAME = "file.txt"
     CONTENTS = "File contents"
 
-    def setUp(self):
-        self.open_func = self.mocker.mock()
-        self.reader = FileReader(open_func=self.open_func)
+    def test_read_returns_data(self, open_mock):
+        open_mock.return_value = MagicMock(spec=file)
+        handle = open_mock.return_value.__enter__.return_value
+        handle.read.return_value = self.CONTENTS
 
-    def test_read_open_failure(self):
-        expect(self.open_func(self.FILENAME)).throw(IOError)
-        self.mocker.replay()
+        result = FileReader().read(self.FILENAME)
 
-        result = self.reader.read(self.FILENAME)
-        self.assertEqual({"error": "read error"}, result)
-
-    def test_read_read_failure(self):
-        file_desc = self.open_func(self.FILENAME)
-        expect(file_desc.read()).throw(IOError)
-        self.mocker.replay()
-
-        result = self.reader.read(self.FILENAME)
-        self.assertEqual({"error": "read error"}, result)
-
-    def test_read_returns_data(self):
-        file_desc = self.open_func(self.FILENAME)
-        expect(file_desc.read()).result(self.CONTENTS)
-        self.mocker.replay()
-
-        result = self.reader.read(self.FILENAME)
+        open_mock.assert_called_once_with(self.FILENAME)
+        handle.read.assert_called_once_with()
         self.assertEqual({"filename": self.FILENAME,
                           "contents": self.CONTENTS}, result)
+
+    def test_read_open_failure(self, open_mock):
+        open_mock.return_value = MagicMock(spec=file)
+        open_mock.side_effect = IOError
+
+        result = FileReader().read(self.FILENAME)
+
+        open_mock.assert_called_once_with(self.FILENAME)
+        self.assertEqual({"error": "read error"}, result)
+
+    def test_read_read_failure(self, open_mock):
+        open_mock.return_value = MagicMock(spec=file)
+        handle = open_mock.return_value.__enter__.return_value
+        handle.read.side_effect = IOError
+
+        result = FileReader().read(self.FILENAME)
+
+        handle.read.assert_called_once_with()
+        self.assertEqual({"error": "read error"}, result)
 
 
 class test_Downloader(TestCase):
