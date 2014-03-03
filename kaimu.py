@@ -495,7 +495,7 @@ class KaimuApp(object):
         """
 
         self.shared_files.add_item(fileitem)
-        self.fileserver.add_file(fileitem['name'])
+        self.fileserver.add_file(fileitem['path'])
         self.publisher.publish_files(self.shared_files)
 
     def remove_shared_file(self, fileitem):
