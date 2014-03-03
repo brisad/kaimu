@@ -1,6 +1,7 @@
 import itertools
 import threading
 import os
+import os.path
 import json
 import sys
 import zmq
@@ -152,6 +153,13 @@ class Downloader(object):
         if 'error' in message:
             self.failure_reason = message['error']
             return False
+
+        if os.path.exists(self.filename):
+            return False
+
+        with open(self.filename, 'w') as f:
+            f.write(message['contents'])
+
         self.has_downloaded = True
         return True
 

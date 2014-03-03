@@ -482,7 +482,8 @@ class test_FileReader(TestCase):
         handle.read.assert_called_once_with()
         self.assertEqual({"error": "read error"}, result)
 
-
+@patch('os.path.exists')
+@patch('fileserver.open', create=True)
 class test_Downloader(TestCase):
     ENDPOINT = "endpoint"
     FILENAME = "filename"
@@ -503,28 +504,47 @@ class test_Downloader(TestCase):
         return success
 
     @patch('os.getcwd')
-    def test_creation(self, getcwd):
+    def test_creation(self, getcwd, open_mock, exists_mock):
         self.d = Downloader(self.context, "endpoint", "filename")
         self.assertEqual(getcwd.return_value, self.d.destination)
         self.assertFalse(self.d.has_downloaded)
 
-    def test_download(self):
-        success = self.do_download('{"contents": "nothing"}')
-        self.assertTrue(success)
-        self.assertTrue(self.d.has_downloaded)
-
-    def test_download_error(self):
+    def test_download_error(self, open_mock, exists_mock):
         success = self.do_download('{"error": "file not found"}')
         self.assertFalse(success)
         self.assertFalse(self.d.has_downloaded)
         self.assertEqual("file not found", self.d.failure_reason)
 
-    def test_download_error_no_json_data(self):
+    def test_download_error_no_json_data(self, open_mock, exists_mock):
         success = self.do_download({})
         self.assertFalse(success)
         self.assertFalse(self.d.has_downloaded)
         self.assertEqual("Invalid data received from server",
                          self.d.failure_reason)
+
+    def test_download_writes_file(self, open_mock, exists_mock):
+        open_mock.return_value = MagicMock(spec=file)
+        handle = open_mock.return_value.__enter__.return_value
+        exists_mock.return_value = False
+
+        success = self.do_download('{"contents": "nothing"}')
+
+        self.assertTrue(success)
+        self.assertTrue(self.d.has_downloaded)
+        open_mock.assert_called_once_with(self.FILENAME, 'w')
+        handle.write.assert_called_once_with("nothing")
+        exists_mock.assert_called_once_with(self.FILENAME)
+
+    def test_download_does_not_overwrite(self, open_mock, exists_mock):
+        open_mock.return_value = MagicMock(spec=file)
+        exists_mock.return_value = True
+
+        success = self.do_download('{"contents": "nothing"}')
+
+        self.assertFalse(success)
+        self.assertFalse(self.d.has_downloaded)
+        assert not open_mock.called, "Open shouldn't have been called"
+        exists_mock.assert_called_once_with(self.FILENAME)
 
 
 class test_serialization(TestCase):
