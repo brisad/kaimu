@@ -347,8 +347,15 @@ class MainFrame(wx.Frame):
 
     def OnActivate(self, event):  # wxGlade: MainFrame.<event_handler>
         item = self.filelist_ctrl.datamap[event.GetItem().GetData()]
-        self.kaimu_app.request_remote_file(item['hosting_device'],
-                                           item['name'])
+        success = self.kaimu_app.request_remote_file(
+            item['hosting_device'], item['name'],
+            self.OnFileRequestSuccess, self.OnFileRequestFailure)
+
+    def OnFileRequestSuccess(self, path):
+        wx.CallAfter(wx.MessageBox, "File downloaded to %s" % path)
+
+    def OnFileRequestFailure(self, reason):
+        wx.CallAfter(wx.MessageBox, "File download failed: %s" % reason)
 
 
 # end of class MainFrame
@@ -509,15 +516,23 @@ class KaimuApp(object):
         self.fileserver.remove_file(fileitem['name'])
         self.publisher.publish_files(self.shared_files)
 
-    def request_remote_file(self, device, filename):
+    def _remote_file_callback(self, status, on_success, on_failure):
+        if status['success']:
+            on_success(status['path'])
+        else:
+            on_failure(status['reason'])
+
+    def request_remote_file(self, device, filename, on_success, on_failure):
         logging.info("Request remote file '%s' from '%s'" % (filename, device))
         endpoint = "tcp://%s:%d" % (self.addresses[device],
                                     self.remote_files[device]['port'])
         downloader = fileserver.Downloader(self.context, endpoint, filename)
 
         logging.info("Starting download from %s" % endpoint)
-        success = downloader.download()
-        return success
+
+        downloader.download(functools.partial(
+                self._remote_file_callback,
+                on_success=on_success, on_failure=on_failure))
 
 
 

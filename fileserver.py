@@ -135,10 +135,22 @@ class Downloader(object):
         self.context = context
         self.endpoint = endpoint
         self.filename = filename
-        self.destination = os.getcwd()
+        self.destination = os.path.join(os.getcwd(), filename)
         self.has_downloaded = False
 
-    def download(self):
+    def download(self, callback):
+        """Start download of file to disk
+
+        Use callback to signal the result of the operation.  callback
+        is passed a dict as argument which contains a key 'success'
+        with a value of True or False.  If it is True, it indicates
+        success and the dict will also contain a key 'path' with a
+        value giving the path of the downloaded file on the file
+        system.  If 'success' is False, the dict will instead contain
+        a key 'reason' with a string as value, stating the reason for
+        the failure.
+        """
+
         socket = self.context.socket(zmq.DEALER)
         socket.connect(self.endpoint)
         msg = '{"request": "%s"}' % self.filename
@@ -146,22 +158,24 @@ class Downloader(object):
         response = socket.recv()
         try:
             message = json.loads(response)
-        except:
-            self.failure_reason = "Invalid data received from server"
-            return False
+        except (ValueError, TypeError):
+            callback({'success': False,
+                      'reason': 'Invalid data received from server'})
+            return
 
         if 'error' in message:
-            self.failure_reason = message['error']
-            return False
+            callback({'success': False, 'reason': message['error']})
+            return
 
-        if os.path.exists(self.filename):
-            return False
+        if os.path.exists(self.destination):
+            callback({'success': False, 'reason': 'File already exists'})
+            return
 
-        with open(self.filename, 'w') as f:
+        with open(self.destination, 'w') as f:
             f.write(message['contents'])
 
         self.has_downloaded = True
-        return True
+        callback({'success': True, 'path': self.destination})
 
 
 if __name__ == '__main__':

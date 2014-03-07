@@ -2,10 +2,12 @@
 # -*- coding: utf-8 -*-
 
 import json
+import os.path
 import zmq
 from unittest import TestCase, main
-from mock import patch, Mock, MagicMock
-from mocker import MockerTestCase, expect, ANY
+from mock import patch, Mock, MagicMock, ANY
+from mocker import MockerTestCase, expect
+from mocker import ANY as  mockerANY
 import serialization
 from serialization import s_req, s_res
 from kaimu import FileList, RemoteFiles, \
@@ -194,8 +196,8 @@ class test_service_discovery(MockerTestCase):
             AvahiBrowser = self.mocker.replace("avahiservice.AvahiBrowser")
             expect(context.socket(zmq.SUB)).result(socket)
             socket.setsockopt(zmq.SUBSCRIBE, "")
-            socket.bind(ANY)
-            browser = AvahiBrowser(context, ANY)
+            socket.bind(mockerANY)
+            browser = AvahiBrowser(context, mockerANY)
             browser.start()
             browser.stop()
             socket.close()
@@ -491,11 +493,12 @@ class test_Downloader(TestCase):
     def setUp(self):
         self.context = Mock()
         self.socket = self.context.socket.return_value
+        self.callback = Mock()
         self.d = Downloader(self.context, self.ENDPOINT, self.FILENAME)
 
     def do_download(self, recv_data):
         self.socket.recv.return_value = recv_data
-        success = self.d.download()
+        success = self.d.download(self.callback)
         self.context.socket.assert_called_once_with(zmq.DEALER)
         self.socket.connect.assert_called_once_with(self.ENDPOINT)
         self.socket.send.assert_called_once_with('{"request": "%s"}' %
@@ -505,46 +508,53 @@ class test_Downloader(TestCase):
 
     @patch('os.getcwd')
     def test_creation(self, getcwd, open_mock, exists_mock):
+        getcwd.return_value = "/abs/path"
         self.d = Downloader(self.context, "endpoint", "filename")
-        self.assertEqual(getcwd.return_value, self.d.destination)
+        self.assertEqual(os.path.join("/abs/path", "filename"),
+                         self.d.destination)
         self.assertFalse(self.d.has_downloaded)
 
     def test_download_error(self, open_mock, exists_mock):
-        success = self.do_download('{"error": "file not found"}')
-        self.assertFalse(success)
+        self.do_download('{"error": "File not found"}')
         self.assertFalse(self.d.has_downloaded)
-        self.assertEqual("file not found", self.d.failure_reason)
+        self.callback.assert_called_once_with({
+                'success': False,
+                'reason': 'File not found'})
 
     def test_download_error_no_json_data(self, open_mock, exists_mock):
-        success = self.do_download({})
-        self.assertFalse(success)
+        self.do_download({})
         self.assertFalse(self.d.has_downloaded)
-        self.assertEqual("Invalid data received from server",
-                         self.d.failure_reason)
+        self.callback.assert_called_once_with({
+                'success': False,
+                'reason': 'Invalid data received from server'})
 
     def test_download_writes_file(self, open_mock, exists_mock):
         open_mock.return_value = MagicMock(spec=file)
         handle = open_mock.return_value.__enter__.return_value
         exists_mock.return_value = False
 
-        success = self.do_download('{"contents": "nothing"}')
+        self.do_download('{"contents": "nothing"}')
 
-        self.assertTrue(success)
         self.assertTrue(self.d.has_downloaded)
-        open_mock.assert_called_once_with(self.FILENAME, 'w')
+        open_mock.assert_called_once_with(self.d.destination, 'w')
         handle.write.assert_called_once_with("nothing")
-        exists_mock.assert_called_once_with(self.FILENAME)
+        exists_mock.assert_called_once_with(self.d.destination)
+
+        self.callback.assert_called_once_with({
+                'success': True, 'path': self.d.destination})
 
     def test_download_does_not_overwrite(self, open_mock, exists_mock):
         open_mock.return_value = MagicMock(spec=file)
         exists_mock.return_value = True
 
-        success = self.do_download('{"contents": "nothing"}')
+        self.do_download('{"contents": "nothing"}')
 
-        self.assertFalse(success)
         self.assertFalse(self.d.has_downloaded)
         assert not open_mock.called, "Open shouldn't have been called"
-        exists_mock.assert_called_once_with(self.FILENAME)
+        exists_mock.assert_called_once_with(self.d.destination)
+
+        self.callback.assert_called_once_with({
+                'success': False, 'reason': 'File already exists'})
 
 
 class test_serialization(TestCase):
@@ -651,18 +661,41 @@ class test_KaimuApp(TestCase):
         self.app.publisher.publish_files.assert_called_once_with(
             self.app.shared_files)
 
+    def do_request(self, Downloader, success_callback, failure_callback):
+        self.app.addresses = {'device': '1.2.3.4'}
+        self.app.remote_files = {'device': {'port': 5678}}
+        self.app.request_remote_file('device', 'file.txt',
+                                     success_callback, failure_callback)
+        Downloader.assert_called_once_with(self.context,
+                                           'tcp://1.2.3.4:5678', 'file.txt')
+
     @patch('fileserver.Downloader')
     def test_request_remote_file_valid(self, Downloader):
         downloader = Downloader.return_value
+        success_callback = Mock()
+        failure_callback = Mock()
 
-        self.app.addresses = {'device': '1.2.3.4'}
-        self.app.remote_files = {'device': {'port': 5678}}
-        success = self.app.request_remote_file('device', 'file.txt')
-        self.assertTrue(success)
+        downloader.download.side_effect = \
+            lambda callback: callback({'success': True, 'path': '/path'})
 
-        Downloader.assert_called_once_with(self.context,
-                                           'tcp://1.2.3.4:5678', 'file.txt')
-        downloader.download.assert_called_once_with()
+        self.do_request(Downloader, success_callback, failure_callback)
+
+        downloader.download.assert_called_once_with(ANY)
+        success_callback.assert_called_once_with('/path')
+
+    @patch('fileserver.Downloader')
+    def test_request_remote_file_not_valid(self, Downloader):
+        downloader = Downloader.return_value
+        success_callback = Mock()
+        failure_callback = Mock()
+
+        downloader.download.side_effect = \
+            lambda callback: callback({'success': False, 'reason': 'text'})
+
+        self.do_request(Downloader, success_callback, failure_callback)
+
+        downloader.download.assert_called_once_with(ANY)
+        failure_callback.assert_called_once_with('text')
 
 
 if __name__ == '__main__':
