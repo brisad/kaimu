@@ -114,7 +114,7 @@ class FileServer(threading.Thread):
     def on_frontend_message(self, message):
         filename = self._extract_request(message)
         for path in self._shared_files:
-            if path.endswith("/%s" % filename):
+            if os.path.basename(path) == filename:
                 return json.dumps(self.reader.read(path))
         return '{"error": "file not found"}'
 
