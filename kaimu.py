@@ -501,9 +501,13 @@ class KaimuApp(object):
         name, path, and size.
         """
 
-        self.shared_files.add_item(fileitem)
-        self.fileserver.add_file(fileitem['path'])
-        self.publisher.publish_files(self.shared_files)
+        try:
+            self.fileserver.add_file(fileitem['path'])
+        except IndexError:
+            pass
+        else:
+            self.shared_files.add_item(fileitem)
+            self.publisher.publish_files(self.shared_files)
 
     def remove_shared_file(self, fileitem):
         """Remove file from list of shared files
@@ -513,7 +517,7 @@ class KaimuApp(object):
         """
 
         self.shared_files.del_item(fileitem)
-        self.fileserver.remove_file(fileitem['name'])
+        self.fileserver.remove_file(fileitem['path'])
         self.publisher.publish_files(self.shared_files)
 
     def _remote_file_callback(self, status, on_success, on_failure):

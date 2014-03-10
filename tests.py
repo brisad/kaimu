@@ -648,6 +648,23 @@ class test_KaimuApp(TestCase):
         self.app.publisher.publish_files.assert_called_once_with(
             self.app.shared_files)
 
+    def test_add_shared_file_failure(self):
+        """Ignore FileServer add_file errors"""
+
+        fileitem = {'name': 'file.txt', 'path': '/path/file.txt'}
+        self.app.shared_files = Mock()
+        self.app.fileserver = Mock()
+        self.app.publisher = Mock()
+        self.app.fileserver.add_file.side_effect = IndexError
+
+        self.app.add_shared_file(fileitem)
+
+        self.app.fileserver.add_file.assert_called_once_with('/path/file.txt')
+        assert not self.app.shared_files.add_item.called, \
+            "add_item shouldn't have been called"
+        assert not self.app.publisher.publish_files.called, \
+            "publish_files shouldn't have been called"
+
     def test_remove_shared_file(self):
         fileitem = {'name': 'file.txt'}
         self.app.shared_files = Mock()
