@@ -666,7 +666,7 @@ class test_KaimuApp(TestCase):
             "publish_files shouldn't have been called"
 
     def test_remove_shared_file(self):
-        fileitem = {'name': 'file.txt'}
+        fileitem = {'path': 'file/path'}
         self.app.shared_files = Mock()
         self.app.fileserver = Mock()
         self.app.publisher = Mock()
@@ -674,7 +674,7 @@ class test_KaimuApp(TestCase):
         self.app.remove_shared_file(fileitem)
 
         self.app.shared_files.del_item.assert_called_once_with(fileitem)
-        self.app.fileserver.remove_file.assert_called_once_with('file.txt')
+        self.app.fileserver.remove_file.assert_called_once_with('file/path')
         self.app.publisher.publish_files.assert_called_once_with(
             self.app.shared_files)
 
