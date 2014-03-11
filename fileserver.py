@@ -14,8 +14,8 @@ class FileReader(object):
             with open(filename) as f:
                 data = f.read()
         except IOError:
-            return {"error": "read error"}
-        return {"filename": filename, "contents": data}
+            return [{"error": "read error"}]
+        return [{"filename": filename}, data]
 
 
 class FileServer(threading.Thread):
@@ -79,7 +79,7 @@ class FileServer(threading.Thread):
     def _handle_frontend(self, frontend):
         identity = frontend.recv()
         message = frontend.recv()
-        frontend.send_multipart([identity, self.on_frontend_message(message)])
+        frontend.send_multipart([identity] + self.on_frontend_message(message))
 
     def add_file(self, filename):
         self.pipe.send(serialization.s_req('add_file', filename))
@@ -111,12 +111,17 @@ class FileServer(threading.Thread):
     def _extract_request(self, message):
         return json.loads(message)['request']
 
+    def _encode_response(self, response):
+        # Serialize dicts to json, leave strings as is
+        return [json.dumps(frame) if not isinstance(frame, basestring)
+                else frame for frame in response]
+
     def on_frontend_message(self, message):
         filename = self._extract_request(message)
         for path in self._shared_files:
             if os.path.basename(path) == filename:
-                return json.dumps(self.reader.read(path))
-        return '{"error": "file not found"}'
+                return self._encode_response(self.reader.read(path))
+        return ['{"error": "file not found"}']
 
     def get_bound_port(self):
         self.pipe.send(serialization.s_req('get_bound_port', None))
@@ -167,12 +172,13 @@ class Downloader(object):
             callback({'success': False, 'reason': message['error']})
             return
 
+        file_contents = socket.recv()
         if os.path.exists(self.destination):
             callback({'success': False, 'reason': 'File already exists'})
             return
 
         with open(self.destination, 'w') as f:
-            f.write(message['contents'])
+            f.write(file_contents)
 
         self.has_downloaded = True
         callback({'success': True, 'path': self.destination})
@@ -200,7 +206,10 @@ if __name__ == '__main__':
             msg = '{"request": "%s"}' % req
             print "Sending:", msg
             s.send(msg)
-            print s.recv()
+            header = s.recv()
+            print header
+            if 'filename' in header:
+                print s.recv()
             req = raw_input()
     except:
         pass

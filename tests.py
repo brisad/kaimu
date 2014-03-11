@@ -348,7 +348,7 @@ class test_FileServer(TestCase):
         frontend.recv.side_effect = ["id", "message"]
 
         fs = FileServer(self.context, pipe=object())
-        fs.on_frontend_message = Mock()
+        fs.on_frontend_message = MagicMock()
         fs.run(iterations=1, frontend=frontend, use_thread_pipe=False)
 
         fs.on_frontend_message.assert_called_once_with("message")
@@ -363,11 +363,12 @@ class test_FileServer(TestCase):
         frontend.recv.side_effect = ["id", "message"]
 
         fs = FileServer(self.context, pipe=object())
-        fs.on_frontend_message = Mock(return_value="reply")
+        fs.on_frontend_message = Mock(return_value=["frame1", "frame2"])
         fs.run(iterations=1, frontend=frontend, use_thread_pipe=False)
 
         fs.on_frontend_message.assert_called_once_with("message")
-        frontend.send_multipart.assert_called_once_with(["id", "reply"])
+        frontend.send_multipart.assert_called_once_with(
+            ["id", "frame1", "frame2"])
 
     @patch('zmq.Poller')
     def test_pipe_method_dispatch_and_reply(self, Poller):
@@ -409,22 +410,21 @@ class test_FileServer(TestCase):
     def test_on_frontend_message_file_not_found(self):
         fs = FileServer(self.context, pipe=object())
         reply = fs.on_frontend_message('{"request": "filename.txt"}')
-        self.assertEqual('{"error": "file not found"}', reply)
+        self.assertListEqual(['{"error": "file not found"}'], reply)
 
     def test_on_frontend_message_file_transferred(self):
         """Test that a file is transferred on request"""
 
         filereader = Mock()
-        filereader.read.return_value = {'filename': 'file.txt',
-                                        'contents': 'abc'}
+        filereader.read.return_value = [{'filename': 'file.txt'}, 'abc']
 
         fs = FileServer(self.context, pipe=object(), reader=filereader)
         fs.on_add_file('/path/file.txt')
         reply = fs.on_frontend_message('{"request": "file.txt"}')
 
         filereader.read.assert_called_once_with('/path/file.txt')
-        self.assert_json_equal(
-            '{"filename": "file.txt", "contents": "abc"}', reply)
+        self.assert_json_equal('{"filename": "file.txt"}', reply[0])
+        self.assertEqual('abc', reply[1])
 
     def test_on_get_bound_port(self):
         """Test that the port of the frontend can be retreived"""
@@ -454,6 +454,8 @@ class test_FileReader(TestCase):
     CONTENTS = "File contents"
 
     def test_read_returns_data(self, open_mock):
+        """Test that normal file read returns data"""
+
         open_mock.return_value = MagicMock(spec=file)
         handle = open_mock.return_value.__enter__.return_value
         handle.read.return_value = self.CONTENTS
@@ -462,8 +464,8 @@ class test_FileReader(TestCase):
 
         open_mock.assert_called_once_with(self.FILENAME)
         handle.read.assert_called_once_with()
-        self.assertEqual({"filename": self.FILENAME,
-                          "contents": self.CONTENTS}, result)
+        self.assertListEqual([{"filename": self.FILENAME}, self.CONTENTS],
+                             result)
 
     def test_read_open_failure(self, open_mock):
         open_mock.return_value = MagicMock(spec=file)
@@ -472,7 +474,7 @@ class test_FileReader(TestCase):
         result = FileReader().read(self.FILENAME)
 
         open_mock.assert_called_once_with(self.FILENAME)
-        self.assertEqual({"error": "read error"}, result)
+        self.assertEqual([{"error": "read error"}], result)
 
     def test_read_read_failure(self, open_mock):
         open_mock.return_value = MagicMock(spec=file)
@@ -482,7 +484,7 @@ class test_FileReader(TestCase):
         result = FileReader().read(self.FILENAME)
 
         handle.read.assert_called_once_with()
-        self.assertEqual({"error": "read error"}, result)
+        self.assertEqual([{"error": "read error"}], result)
 
 @patch('os.path.exists')
 @patch('fileserver.open', create=True)
@@ -497,13 +499,13 @@ class test_Downloader(TestCase):
         self.d = Downloader(self.context, self.ENDPOINT, self.FILENAME)
 
     def do_download(self, recv_data):
-        self.socket.recv.return_value = recv_data
+        self.socket.recv.side_effect = recv_data
         success = self.d.download(self.callback)
         self.context.socket.assert_called_once_with(zmq.DEALER)
         self.socket.connect.assert_called_once_with(self.ENDPOINT)
         self.socket.send.assert_called_once_with('{"request": "%s"}' %
                                                  self.FILENAME)
-        self.socket.recv.assert_called_once_with()
+        self.socket.recv.assert_called_with()
         return success
 
     @patch('os.getcwd')
@@ -515,29 +517,33 @@ class test_Downloader(TestCase):
         self.assertFalse(self.d.has_downloaded)
 
     def test_download_error(self, open_mock, exists_mock):
-        self.do_download('{"error": "File not found"}')
+        self.do_download(['{"error": "File not found"}'])
         self.assertFalse(self.d.has_downloaded)
         self.callback.assert_called_once_with({
                 'success': False,
                 'reason': 'File not found'})
 
     def test_download_error_no_json_data(self, open_mock, exists_mock):
-        self.do_download({})
+        """Test that invalid json data is detected"""
+
+        self.do_download([{}])
         self.assertFalse(self.d.has_downloaded)
         self.callback.assert_called_once_with({
                 'success': False,
                 'reason': 'Invalid data received from server'})
 
     def test_download_writes_file(self, open_mock, exists_mock):
+        """Test that a successful download writes to file to disk"""
+
         open_mock.return_value = MagicMock(spec=file)
         handle = open_mock.return_value.__enter__.return_value
         exists_mock.return_value = False
 
-        self.do_download('{"contents": "nothing"}')
+        self.do_download(['{"filename": "filename"}', 'data'])
 
         self.assertTrue(self.d.has_downloaded)
         open_mock.assert_called_once_with(self.d.destination, 'w')
-        handle.write.assert_called_once_with("nothing")
+        handle.write.assert_called_once_with("data")
         exists_mock.assert_called_once_with(self.d.destination)
 
         self.callback.assert_called_once_with({
@@ -547,12 +553,12 @@ class test_Downloader(TestCase):
         open_mock.return_value = MagicMock(spec=file)
         exists_mock.return_value = True
 
-        self.do_download('{"contents": "nothing"}')
-
+        self.do_download(['{"filename": "filename"}', 'data'])
         self.assertFalse(self.d.has_downloaded)
         assert not open_mock.called, "Open shouldn't have been called"
         exists_mock.assert_called_once_with(self.d.destination)
 
+        self.assertEqual(2, self.socket.recv.call_count)
         self.callback.assert_called_once_with({
                 'success': False, 'reason': 'File already exists'})
 
