@@ -480,9 +480,14 @@ class KaimuApp(object):
         for name, addr, port in services.new:
             self.addresses[name] = addr
 
-        # Clear a remote service's files if it has disappeared
         for removed, in services.removed:
-            del self.remote_files[removed]
+            # If we have a list of files from a removed service, clear
+            # it since it is no longer available
+            if removed in self.remote_files:
+                logging.debug('Removing list of files belonging to %s', removed)
+                del self.remote_files[removed]
+            else:
+                logging.debug("Didn't have any files belonging to %s", removed)
 
         files = self.subscriber.receive_files()
         if files is not None:
