@@ -692,6 +692,28 @@ class test_KaimuApp(TestCase):
         Downloader.assert_called_once_with(self.context,
                                            'tcp://1.2.3.4:5678', 'file.txt')
 
+    def test_remote_files_updated_only_on_new_data(self):
+        """Test that remote files are only updated when necessary"""
+
+        self.app.tracker = MagicMock()
+        self.app.subscriber = Mock()
+        self.app.remote_files = MagicMock()
+
+        self.app.remote_files.get.side_effect = [
+            None,
+            {'files': ['x'], 'port': 1}]
+
+        self.app.subscriber.receive_files.side_effect = [
+            {'name': 'n', 'files': ['x'], 'port': 1},
+            {'name': 'n', 'files': ['x'], 'port': 1}]
+
+        # Let receive_files() be called twice
+        self.app.timer_event()
+        self.app.timer_event()
+
+        self.app.remote_files.__setitem__.assert_called_once_with(
+            'n', {'files': ['x'], 'port': 1})
+
     @patch('fileserver.Downloader')
     def test_request_remote_file_valid(self, Downloader):
         downloader = Downloader.return_value

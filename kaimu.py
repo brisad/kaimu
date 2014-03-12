@@ -418,6 +418,7 @@ class KaimuApp(object):
         self.context = context
         self.UI = UI
         self.addresses = {}
+        self.publisher_tick = 0
 
     def run(self):
         with service_discovery(self.context) as discoversock:
@@ -425,7 +426,6 @@ class KaimuApp(object):
             p.daemon = True
             p.start()
 
-            self.publisher_tick = 0
             self.shared_files = FileList(None)
             self.remote_files = RemoteFiles(None)
 
@@ -436,12 +436,12 @@ class KaimuApp(object):
             self._start_publish(self.context, platform.node(), fileserver_port)
             self._start_discover(self.context, discoversock)
 
-            Kaimu = self.UI(self)
+            UI = self.UI(self)
 
-            self.shared_files.listener = Kaimu.on_shared_files_update
-            self.remote_files.listener = Kaimu.on_remote_files_update
+            self.shared_files.listener = UI.on_shared_files_update
+            self.remote_files.listener = UI.on_remote_files_update
 
-            Kaimu.MainLoop()
+            UI.MainLoop()
 
             self.fileserver.stop()
 
@@ -491,8 +491,10 @@ class KaimuApp(object):
 
         files = self.subscriber.receive_files()
         if files is not None:
-            self.remote_files[files['name']] = {k: files[k] for k
-                                                in ('files', 'port')}
+            name = files['name']
+            contents = {k: files[k] for k in ('files', 'port')}
+            if self.remote_files.get(name) != contents:
+                self.remote_files[name] = contents
 
         self.publisher_tick += 1
         if (self.publisher_tick > 20):
