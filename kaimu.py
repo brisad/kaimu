@@ -265,6 +265,15 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_BUTTON, self.OnRemove, self.remove_file_btn)
         # end wxGlade
 
+        self.filelist_ctrl.datamap = {}
+        self.filelist_ctrl.InsertColumn(0, "Filename")
+        self.filelist_ctrl.InsertColumn(1, "Size")
+        self.filelist_ctrl.InsertColumn(2, "Device")
+
+        self.shared_files_ctrl.datamap = {}
+        self.shared_files_ctrl.InsertColumn(0, "Filename")
+        self.shared_files_ctrl.InsertColumn(1, "Size")
+
         self.kaimu_app = kaimu_app
 
     def __set_properties(self):
@@ -302,23 +311,41 @@ class MainFrame(wx.Frame):
         self._populate_list_ctrl(self.filelist_ctrl, files)
 
     def _populate_shared(self, files):
-        self._populate_list_ctrl(self.shared_files_ctrl, files)
+        self._populate_list_ctrl(self.shared_files_ctrl, list(files))
 
     def _populate_list_ctrl(self, ctrl, files):
-        ctrl.datamap = {}
-        ctrl.ClearAll()
-        ctrl.InsertColumn(0, "Filename")
-        ctrl.InsertColumn(1, "Size")
-        ctrl.InsertColumn(2, "Device")
+        """Populate control with the list of files in files
 
-        for idx, item in enumerate(files):
+        files is copy of a list and can be modified freely without
+        affecting the original list of files.
+        """
+
+        # Loop through items currently associated with the list
+        # control. If an item is not also present in files, remove it
+        # from the list control. If it is present in files, keep it in
+        # the list control but remove it from files.
+        for _id, item in ctrl.datamap.items():
+            if item not in files:
+                # This item has been removed. Find it and delete it
+                for idx in range(ctrl.GetItemCount()):
+                    if ctrl.GetItemData(idx) == _id:
+                        ctrl.DeleteItem(idx)
+                        del ctrl.datamap[_id]
+                        break
+            else:
+                # This item remains, we don't need to think about it
+                # so delete it from files now
+                del files[files.index(item)]
+
+        # Remaining items in files need to be added
+        for item in files:
             _id = wx.NewId()
-            pos = ctrl.InsertStringItem(idx, item['name'])
+            pos = ctrl.InsertStringItem(0, item['name'])
             ctrl.SetStringItem(pos, 1, str(item['size']))
             if 'hosting_device' in item:
                 ctrl.SetStringItem(pos, 2, item['hosting_device'])
             ctrl.datamap[_id] = item
-            ctrl.SetItemData(idx, _id)
+            ctrl.SetItemData(0, _id)
 
     def _get_list_ctrl_selected_item(self, ctrl):
         return ctrl.GetNextItem(-1, wx.LIST_NEXT_ALL, wx.LIST_STATE_SELECTED)
@@ -343,7 +370,6 @@ class MainFrame(wx.Frame):
             _id = self.shared_files_ctrl.GetItemData(index)
             item = self.shared_files_ctrl.datamap[_id]
             self.kaimu_app.remove_shared_file(item)
-
 
     def OnActivate(self, event):  # wxGlade: MainFrame.<event_handler>
         item = self.filelist_ctrl.datamap[event.GetItem().GetData()]
