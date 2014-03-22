@@ -426,8 +426,7 @@ def ipc_name(prefix):
 def service_discovery(context):
     """Utility context manager for starting service discovery."""
 
-    socket = context.socket(zmq.SUB)
-    socket.setsockopt(zmq.SUBSCRIBE, "")
+    socket = context.socket(zmq.PULL)
     addr = ipc_name("kaimubrowse")
     socket.bind(addr)
     browser = avahiservice.AvahiBrowser(context, addr)

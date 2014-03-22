@@ -7,7 +7,7 @@ import zmq
 from unittest import TestCase, main
 from mock import patch, Mock, MagicMock, ANY
 from mocker import MockerTestCase, expect
-from mocker import ANY as  mockerANY
+from mocker import ANY as mockerANY
 import serialization
 from serialization import s_req, s_res
 from kaimu import FileList, RemoteFiles, \
@@ -188,23 +188,22 @@ class test_ServiceTracker(MockerTestCase):
         self.assertListEqual([["hostA"]], services.removed)
 
 
-class test_service_discovery(MockerTestCase):
-    def test_contextmanager(self):
-        with self.mocker.order():
-            context = self.mocker.mock()
-            socket = self.mocker.mock()
-            AvahiBrowser = self.mocker.replace("avahiservice.AvahiBrowser")
-            expect(context.socket(zmq.SUB)).result(socket)
-            socket.setsockopt(zmq.SUBSCRIBE, "")
-            socket.bind(mockerANY)
-            browser = AvahiBrowser(context, mockerANY)
-            browser.start()
-            browser.stop()
-            socket.close()
-            self.mocker.replay()
+class test_service_discovery(TestCase):
+    @patch('avahiservice.AvahiBrowser')
+    def test_contextmanager(self, AvahiBrowser):
+        context = Mock()
+        socket = context.socket.return_value
+        browser = AvahiBrowser.return_value
 
         with service_discovery(context) as s:
             self.assertEqual(s, socket)
+
+        context.socket.assert_called_once_with(zmq.PULL)
+        socket.bind.assert_called_once_with(ANY)
+        AvahiBrowser.assert_called_once_with(context, ANY)
+        browser.start.assert_called_once_with()
+        browser.stop.assert_called_once_with()
+        socket.close.assert_called_once_with()
 
 
 class test_FileServer(TestCase):
@@ -621,8 +620,7 @@ class test_KaimuApp(TestCase):
         announcer = Mock()
         AvahiAnnouncer.return_value = announcer
 
-        browser = Mock()
-        AvahiBrowser.return_value = browser
+        browser = AvahiBrowser.return_value
 
         server = Mock()
         server.get_bound_port.return_value = 9999

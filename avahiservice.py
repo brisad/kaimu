@@ -41,7 +41,7 @@ class AvahiBrowser(object):
     def run(self):
         # This method runs in a new process, so create a new context
         context = zmq.Context()
-        self.outsock = context.socket(zmq.PUB)
+        self.outsock = context.socket(zmq.PUSH)
         self.outsock.connect(self.address)
 
         # Socket for receiving the stop signal
