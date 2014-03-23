@@ -11,9 +11,6 @@ import zmq
 import uuid
 import functools
 from collections import namedtuple, MutableMapping
-from random import randrange
-from time import sleep
-from threading import Thread
 from contextlib import contextmanager
 import avahiservice
 import fileserver
@@ -105,27 +102,6 @@ class ServiceTracker(object):
                 del self.hosts[name]
 
         return services
-
-
-class Publisher(Thread):
-    def __init__(self):
-        super(Publisher, self).__init__()
-        self.context = zmq.Context()
-        self.socket = self.context.socket(zmq.PUB)
-        port = self.socket.bind_to_random_port("tcp://*")
-        self.announcer = avahiservice.AvahiAnnouncer("thread", port)
-        self.announcer.start()
-
-    def run(self):
-        while True:
-            sleep(1)
-            s = json.dumps(
-                {'name': self.announcer.name,
-                 'files': [{'name': "file %d" % x, 'path': None, 'size': x}
-                          for x in range(randrange(1, 12))],
-                 'port': -1},
-                cls=FileListJSONEncoder)
-            self.socket.send(s)
 
 
 class SharedFilesPublisher(object):
@@ -447,10 +423,6 @@ class KaimuApp(object):
 
     def run(self):
         with service_discovery(self.context) as discoversock:
-            p = Publisher()
-            p.daemon = True
-            p.start()
-
             self.shared_files = FileList(None)
             self.remote_files = RemoteFiles(None)
 
@@ -472,7 +444,6 @@ class KaimuApp(object):
 
             logging.info("Stopping AvahiAnnouncer")
             self.announcer.stop()
-            p.announcer.stop()
 
     def _start_publish(self, context, name, server_port):
         """Initialize publishing of shared files."""
