@@ -13,26 +13,36 @@ timeout  = 5
 queried  = []
 resolved = []
 
-class BonjourBrowser(threading.Thread):
+def inproc_name(prefix):
+    return "inproc://%s-%s" % (prefix,str(uuid.uuid4())[:13])
+
+
+class BonjourBrowser(object):
     """Browse services with Bonjour in a new thread.
 
-    Detects addition and removal of services on the local domain.
-    When a service is added or removed, that information is written to
-    the address passed to the constructor of the BonjourBrowser.
+    Detects addition and removal of kaimu services on the local
+    domain.  When either of those events happen, a message is written
+    to the zmq socket available immediately after start(), found in
+    the instance variable socket.
+
+    Two types of messages can be sent to the receiving socket,
+    addition of a service and removal of a service.  These are
+    represented as json encoded lists in the following format:
+    - Addition: ["N", name, address, port]
+    - Removal:  ["R", name]
 
     Since the inter-process transport protocol in ZeroMQ is currently
     not supported in Windows, this class uses inproc transports and
-    threads instead of processes.  This has been working fine together
-    with wxPython in Windows.
+    runs in a separate thread rather than a process.  This has been
+    working fine together with wxPython in Windows.
     """
 
     CHECK_STOP_INTERVAL = 100
 
-    def __init__(self, context, address):
+    def __init__(self, context):
         super(BonjourBrowser, self).__init__()
         self.context = context
-        self.address = address
-        self.ctrladdr = "inproc://browserctrl-" + str(uuid.uuid4())[:13]
+        self.ctrladdr = inproc_name('browserctrl')
         self.resolve_data = {}
 
     def query_record_callback(self, sdRef, flags, interfaceIndex, errorCode,
@@ -84,7 +94,6 @@ class BonjourBrowser(threading.Thread):
             outgoing = ['R', serviceName]
             logging.debug('Sending: %s', outgoing)
             self.outsock.send_json(outgoing)
-            self.outsock.recv()
             return
         else:
             logging.debug('Resolving added service: %s', serviceName)
@@ -117,13 +126,22 @@ class BonjourBrowser(threading.Thread):
                 else:
                     logging.debug('Sending: %s', outgoing)
                     self.outsock.send_json(outgoing)
-                    self.outsock.recv()
                 resolved.pop()
         finally:
             resolve_sdRef.close()
 
+    def start(self):
+        """Bind receiving socket and start browsing."""
+
+        self.address = inproc_name('bonjourbrowse')
+        self.socket = self.context.socket(zmq.PULL)
+        self.socket.bind(self.address)
+
+        self.thread = threading.Thread(target=self.run)
+        self.thread.start()
+
     def run(self):
-        self.outsock = self.context.socket(zmq.REQ)
+        self.outsock = self.context.socket(zmq.PUSH)
         self.outsock.connect(self.address)
 
         self.ctrlsock = self.context.socket(zmq.PAIR)
@@ -153,9 +171,13 @@ class BonjourBrowser(threading.Thread):
             browse_sdRef.close()
 
     def stop(self):
+        """Stop browsing and close receiving socket."""
+
         sock = self.context.socket(zmq.PAIR)
         sock.connect(self.ctrladdr)
         sock.send("STOP")
+        self.thread.join()
+        self.socket.close()
 
 
 class BonjourAnnouncer(object):
@@ -192,15 +214,12 @@ class BonjourAnnouncer(object):
 
 
 if __name__ == '__main__':
-    # Create context, socket and address
     context = zmq.Context()
-    s = context.socket(zmq.REP)
-    addr = "inproc://kaimubrowser-" + str(uuid.uuid4())[:13]
-    s.bind(addr)
 
     # Start browser
-    browser = BonjourBrowser(context, addr)
+    browser = BonjourBrowser(context)
     browser.start()
+    s = browser.socket
 
     # Announce local service
     announcer = BonjourAnnouncer("localkaimu", 9999)
@@ -208,12 +227,10 @@ if __name__ == '__main__':
 
     # Show new service announcement
     print s.recv()
-    s.send("OK")
 
     announcer.stop()
 
     # Show service removal
     print s.recv()
-    s.send("OK")
 
     browser.stop()
