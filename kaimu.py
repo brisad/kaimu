@@ -395,23 +395,16 @@ class MainApp(wx.App):
 # end of class MainApp
 
 
-def ipc_name(prefix):
-    return "ipc://%s-%s" % (prefix,str(uuid.uuid4())[:13])
-
 @contextmanager
 def service_discovery(context):
     """Utility context manager for starting service discovery."""
 
-    socket = context.socket(zmq.PULL)
-    addr = ipc_name("kaimubrowse")
-    socket.bind(addr)
-    browser = avahiservice.AvahiBrowser(context, addr)
+    browser = avahiservice.AvahiBrowser(context)
     logging.info("Starting AvahiBrowser")
     browser.start()
-    yield socket
+    yield browser.socket
     logging.info("Stopping AvahiBrowser")
     browser.stop()
-    socket.close()
 
 
 class KaimuApp(object):

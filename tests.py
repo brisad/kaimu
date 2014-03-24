@@ -192,18 +192,15 @@ class test_service_discovery(TestCase):
     @patch('avahiservice.AvahiBrowser')
     def test_contextmanager(self, AvahiBrowser):
         context = Mock()
-        socket = context.socket.return_value
         browser = AvahiBrowser.return_value
+        socket = browser.socket
 
         with service_discovery(context) as s:
             self.assertEqual(s, socket)
 
-        context.socket.assert_called_once_with(zmq.PULL)
-        socket.bind.assert_called_once_with(ANY)
-        AvahiBrowser.assert_called_once_with(context, ANY)
+        AvahiBrowser.assert_called_once_with(context)
         browser.start.assert_called_once_with()
         browser.stop.assert_called_once_with()
-        socket.close.assert_called_once_with()
 
 
 class test_FileServer(TestCase):

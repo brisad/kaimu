@@ -10,33 +10,38 @@ import gobject
 
 TYPE = '_kaimu._tcp'
 
+def ipc_name(prefix):
+    return "ipc://%s-%s" % (prefix,str(uuid.uuid4())[:13])
+
+
 class AvahiBrowser(object):
     """Browse services with Avahi in a new process.
 
-    Detects addition and removal of services on the local domain.
-    When a service is added or removed, that information is written to
-    the address passed to the constructor of the AvahiBrowser.
+    Detects addition and removal of kaimu services on the local
+    domain.  When either of those events happen, a message is written
+    to the zmq socket available immediately after start(), found in
+    the instance variable socket.
 
-    AvahiBrowser will run the browser in a new process when start() is
-    called.  This starts the glib main loop and will write data to the
-    socket whenever it gets any new information.  The method stop()
-    should be invoked in order to stop the browser and terminate the
-    main loop.
+    Two types of messages can be sent to the receiving socket,
+    addition of a service and removal of a service.  These are
+    represented as json encoded lists in the following format:
+    - Addition: ["N", name, address, port]
+    - Removal:  ["R", name]
 
-    All sorts of funny things happened when the browser was run in a
-    thread at the same time as wxPython, even when the glib thread
-    initialization methods had been called.  The solution was to do
-    the browsing in a separate process instead and be careful to spawn
-    it before initializing the wxApp.  If it's spawned after wxPython
-    starts, funny things will begin happening again.
+    AvahiBrowser runs in its own process.  All sorts of funny things
+    happened when the browser was run in a thread at the same time as
+    wxPython, even when the glib thread initialization methods had
+    been called.  The solution was to do the browsing in a separate
+    process instead and be careful to spawn it before initializing the
+    wxApp.  If it's spawned after wxPython starts, funny things will
+    begin happening again.
     """
 
     CHECK_STOP_INTERVAL = 100
 
-    def __init__(self, context, address):
+    def __init__(self, context):
         self.context = context  # used in the stop method
-        self.address = address
-        self.ctrladdr = "ipc://kaimuctrl-" + str(uuid.uuid4())[:13]
+        self.ctrladdr = ipc_name('browserctrl')
 
     def run(self):
         # This method runs in a new process, so create a new context
@@ -61,15 +66,24 @@ class AvahiBrowser(object):
         del self.ctrlsock
 
     def start(self):
+        """Bind receiving socket and start browsing."""
+
+        self.address = ipc_name("avahibrowse")
+        self.socket = self.context.socket(zmq.PULL)
+        self.socket.bind(self.address)
+
         self.proc = Process(target=self.run)
         self.proc.start()
 
     def stop(self):
+        """Stop browsing and close receiving socket."""
+
         socket = self.context.socket(zmq.PUB)
         socket.connect(self.ctrladdr)
         # Send stop signal until process dies
         while self.proc.is_alive():
             socket.send("STOP")
+        self.socket.close()
 
     def _start_browser(self):
         bus = dbus.SystemBus(mainloop=DBusGMainLoop(set_as_default=True))
@@ -168,16 +182,12 @@ def _poll_and_print(poller, socket, timeout):
             break
 
 if __name__ == '__main__':
-    # Create context, socket and address
     context = zmq.Context()
-    socket = context.socket(zmq.SUB)
-    socket.setsockopt(zmq.SUBSCRIBE, "")
-    addr = "ipc://kaimubrowser-" + str(uuid.uuid4())[:13]
-    socket.bind(addr)
 
     # Start browser
-    browser = AvahiBrowser(context, addr)
+    browser = AvahiBrowser(context)
     browser.start()
+    socket = browser.socket
 
     # Announce local service
     announcer = AvahiAnnouncer("localkaimu", 9999)
