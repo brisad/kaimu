@@ -17,7 +17,7 @@ def inproc_name(prefix):
     return "inproc://%s-%s" % (prefix,str(uuid.uuid4())[:13])
 
 
-class BonjourBrowser(object):
+class Browser(object):
     """Browse services with Bonjour in a new thread.
 
     Detects addition and removal of kaimu services on the local
@@ -40,7 +40,6 @@ class BonjourBrowser(object):
     CHECK_STOP_INTERVAL = 100
 
     def __init__(self, context):
-        super(BonjourBrowser, self).__init__()
         self.context = context
         self.ctrladdr = inproc_name('browserctrl')
         self.resolve_data = {}
@@ -180,11 +179,10 @@ class BonjourBrowser(object):
         self.socket.close()
 
 
-class BonjourAnnouncer(object):
+class Announcer(object):
     """Announce a kaimu service with Bonjour."""
 
     def __init__(self, name, port):
-        super(BonjourAnnouncer, self).__init__()
         self.name = name
         self.port = port
         self.registered = False
@@ -217,12 +215,12 @@ if __name__ == '__main__':
     context = zmq.Context()
 
     # Start browser
-    browser = BonjourBrowser(context)
+    browser = Browser(context)
     browser.start()
     s = browser.socket
 
     # Announce local service
-    announcer = BonjourAnnouncer("localkaimu", 9999)
+    announcer = Announcer("localkaimu", 9999)
     announcer.start()
 
     # Show new service announcement

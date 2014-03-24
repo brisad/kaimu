@@ -14,7 +14,7 @@ def ipc_name(prefix):
     return "ipc://%s-%s" % (prefix,str(uuid.uuid4())[:13])
 
 
-class AvahiBrowser(object):
+class Browser(object):
     """Browse services with Avahi in a new process.
 
     Detects addition and removal of kaimu services on the local
@@ -28,7 +28,7 @@ class AvahiBrowser(object):
     - Addition: ["N", name, address, port]
     - Removal:  ["R", name]
 
-    AvahiBrowser runs in its own process.  All sorts of funny things
+    The browser runs in its own process.  All sorts of funny things
     happened when the browser was run in a thread at the same time as
     wxPython, even when the glib thread initialization methods had
     been called.  The solution was to do the browsing in a separate
@@ -135,7 +135,7 @@ class AvahiBrowser(object):
             error_handler=self._resolve_error)
 
 
-class AvahiAnnouncer(object):
+class Announcer(object):
     """Announce a kaimu service with Avahi."""
 
     def __init__(self, name, port):
@@ -185,12 +185,12 @@ if __name__ == '__main__':
     context = zmq.Context()
 
     # Start browser
-    browser = AvahiBrowser(context)
+    browser = Browser(context)
     browser.start()
     socket = browser.socket
 
     # Announce local service
-    announcer = AvahiAnnouncer("localkaimu", 9999)
+    announcer = Announcer("localkaimu", 9999)
     announcer.start()
 
     poller = zmq.Poller()

@@ -189,16 +189,16 @@ class test_ServiceTracker(MockerTestCase):
 
 
 class test_service_discovery(TestCase):
-    @patch('avahiservice.AvahiBrowser')
-    def test_contextmanager(self, AvahiBrowser):
+    @patch('avahiservice.Browser')
+    def test_contextmanager(self, Browser):
         context = Mock()
-        browser = AvahiBrowser.return_value
+        browser = Browser.return_value
         socket = browser.socket
 
         with service_discovery(context) as s:
             self.assertEqual(s, socket)
 
-        AvahiBrowser.assert_called_once_with(context)
+        Browser.assert_called_once_with(context)
         browser.start.assert_called_once_with()
         browser.stop.assert_called_once_with()
 
@@ -609,15 +609,15 @@ class test_KaimuApp(TestCase):
         self.context = MagicMock()
         self.app = KaimuApp(self.context, UI)
 
-    @patch('avahiservice.AvahiAnnouncer')
-    @patch('avahiservice.AvahiBrowser')
+    @patch('avahiservice.Announcer')
+    @patch('avahiservice.Browser')
     @patch('fileserver.FileServer')
-    def test_start_stop(self, FileServer, AvahiBrowser, AvahiAnnouncer):
+    def test_start_stop(self, FileServer, Browser, Announcer):
 
         announcer = Mock()
-        AvahiAnnouncer.return_value = announcer
+        Announcer.return_value = announcer
 
-        browser = AvahiBrowser.return_value
+        browser = Browser.return_value
 
         server = Mock()
         server.get_bound_port.return_value = 9999

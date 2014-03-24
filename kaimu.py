@@ -12,8 +12,12 @@ import uuid
 import functools
 from collections import namedtuple, MutableMapping
 from contextlib import contextmanager
-import avahiservice
 import fileserver
+
+try:
+    import avahiservice as zeroconf
+except ImportError:
+    import bonjourservice as zeroconf
 
 
 if __name__ == '__main__':
@@ -399,11 +403,11 @@ class MainApp(wx.App):
 def service_discovery(context):
     """Utility context manager for starting service discovery."""
 
-    browser = avahiservice.AvahiBrowser(context)
-    logging.info("Starting AvahiBrowser")
+    browser = zeroconf.Browser(context)
+    logging.info("Starting browser")
     browser.start()
     yield browser.socket
-    logging.info("Stopping AvahiBrowser")
+    logging.info("Stopping browser")
     browser.stop()
 
 
@@ -435,7 +439,7 @@ class KaimuApp(object):
 
             self.fileserver.stop()
 
-            logging.info("Stopping AvahiAnnouncer")
+            logging.info("Stopping announcer")
             self.announcer.stop()
 
     def _start_publish(self, context, name, server_port):
@@ -445,8 +449,8 @@ class KaimuApp(object):
         pubsock = context.socket(zmq.PUB)
         port = pubsock.bind_to_random_port("tcp://*")
         # Announce our service
-        logging.info("Starting AvahiAnnouncer")
-        self.announcer = avahiservice.AvahiAnnouncer(name, port)
+        logging.info("Starting announcer")
+        self.announcer = zeroconf.Announcer(name, port)
         self.announcer.start()
         logging.info("Announcing ourselves as '%s' on port %d",
                      self.announcer.name, port)
