@@ -59,7 +59,7 @@ class FileServer(threading.Thread):
         for i in itertools.count():
             if iterations is not None and iterations == i:
                 break
-            socks = dict(poller.poll(0))
+            socks = dict(poller.poll())
             if thread_pipe in socks and socks[thread_pipe] == zmq.POLLIN:
                 should_stop = self._handle_pipe(thread_pipe)
                 if should_stop:
