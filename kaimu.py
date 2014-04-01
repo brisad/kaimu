@@ -293,32 +293,48 @@ class MainFrame(wx.Frame):
     def _populate_shared(self, files):
         self._populate_list_ctrl(self.shared_files_ctrl, list(files))
 
-    def _populate_list_ctrl(self, ctrl, files):
-        """Populate control with the list of files in files
+    def _get_list_changes(self, ctrl, items):
+        # Find the differences between the data items bound to the
+        # ctrl and the passed items list.  Return a tuple: added,
+        # unchanged, removed.  Interpret the passed items list as the
+        # new state of ctrl.  Each item in unchanged and removed
+        # contains extra information on where it was found in the
+        # ctrl.
 
-        files is copy of a list and can be modified freely without
-        affecting the original list of files.
-        """
-
-        # Loop through items currently associated with the list
-        # control. If an item is not also present in files, remove it
-        # from the list control. If it is present in files, keep it in
-        # the list control but remove it from files.
+        # Remove items from this as we find them in the control
+        added = items[:]
+        unchanged = []
+        removed = []
         for _id, item in ctrl.datamap.items():
-            if item not in files:
-                # This item has been removed. Find it and delete it
-                for idx in range(ctrl.GetItemCount()):
-                    if ctrl.GetItemData(idx) == _id:
-                        ctrl.DeleteItem(idx)
-                        del ctrl.datamap[_id]
-                        break
+            if item in items:
+                # Item is present in control, unchanged
+                unchanged.append((item, _id))
+                del added[added.index(item)]
             else:
-                # This item remains, we don't need to think about it
-                # so delete it from files now
-                del files[files.index(item)]
+                # Item is present in control but not in our passed
+                # data list, this has been removed
+                removed.append((item, _id))
+        return added, unchanged, removed
 
-        # Remaining items in files need to be added
-        for item in files:
+    def _remove_list_item(self, ctrl, _id):
+        # Remove the list item identified by _id from ctrl
+        for idx in range(ctrl.GetItemCount()):
+            if ctrl.GetItemData(idx) == _id:
+                ctrl.DeleteItem(idx)
+                del ctrl.datamap[_id]
+                return
+
+    def _populate_list_ctrl(self, ctrl, files):
+        """Populate control with the list of files in files."""
+
+        added, __, removed = self._get_list_changes(ctrl, files)
+
+        # Remove items from list control
+        for __, _id in removed:
+            self._remove_list_item(ctrl, _id)
+
+        # Add new items to list control
+        for item in added:
             _id = wx.NewId()
             pos = ctrl.InsertStringItem(0, item['name'])
             ctrl.SetStringItem(pos, 1, str(item['size']))
