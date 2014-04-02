@@ -7,6 +7,7 @@ import os
 import platform
 import json
 import wx
+from wx.lib.agw import ultimatelistctrl as ULC
 import zmq
 import uuid
 import functools
@@ -231,27 +232,31 @@ class MainFrame(wx.Frame):
         wx.Frame.__init__(self, *args, **kwds)
         self.notebook = wx.Notebook(self, -1, style=0)
         self.available_files_pane = wx.Panel(self.notebook, -1)
-        self.filelist_ctrl = wx.ListCtrl(self.available_files_pane, -1, style=wx.LC_REPORT | wx.SUNKEN_BORDER)
+        self.filelist_ctrl = ULC.UltimateListCtrl(self.available_files_pane, -1, agwStyle=ULC.ULC_REPORT | ULC.ULC_HAS_VARIABLE_ROW_HEIGHT)
         self.shared_files_pane = wx.Panel(self.notebook, -1)
         self.add_file_btn = wx.Button(self.shared_files_pane, wx.ID_ADD, "")
         self.remove_file_btn = wx.Button(self.shared_files_pane, wx.ID_REMOVE, "")
-        self.shared_files_ctrl = wx.ListCtrl(self.shared_files_pane, -1, style=wx.LC_REPORT | wx.SUNKEN_BORDER)
+        self.shared_files_ctrl = ULC.UltimateListCtrl(self.shared_files_pane, -1, agwStyle=ULC.ULC_REPORT | ULC.ULC_HAS_VARIABLE_ROW_HEIGHT)
 
         self.__set_properties()
         self.__do_layout()
 
-        self.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.OnActivate, self.filelist_ctrl)
         self.Bind(wx.EVT_BUTTON, self.OnAdd, self.add_file_btn)
         self.Bind(wx.EVT_BUTTON, self.OnRemove, self.remove_file_btn)
         # end wxGlade
 
         self.filelist_ctrl.datamap = {}
         self.filelist_ctrl.InsertColumn(0, "Filename")
-        self.filelist_ctrl.InsertColumn(1, "Size")
+        self.filelist_ctrl.InsertColumn(1, "Size", wx.LIST_FORMAT_RIGHT)
         self.filelist_ctrl.InsertColumn(2, "Device")
+        self.filelist_ctrl.InsertColumn(3, "Action")
+        self.filelist_ctrl.SetColumnWidth(0, 164)
+        self.filelist_ctrl.SetColumnWidth(1, 70)
+        self.filelist_ctrl.SetColumnWidth(2, 140)
 
         self.shared_files_ctrl.datamap = {}
         self.shared_files_ctrl.InsertColumn(0, "Filename")
+        self.shared_files_ctrl.SetColumnWidth(0, 164)
         self.shared_files_ctrl.InsertColumn(1, "Size")
 
         self.kaimu_app = kaimu_app
@@ -259,7 +264,7 @@ class MainFrame(wx.Frame):
     def __set_properties(self):
         # begin wxGlade: MainFrame.__set_properties
         self.SetTitle("Kaimu")
-        self.SetSize((345, 223))
+        self.SetSize((456, 230))
         # end wxGlade
 
     def __do_layout(self):
@@ -286,12 +291,6 @@ class MainFrame(wx.Frame):
         self._populate_filelist(
             [dict([('hosting_device', x[0])] + x[1].items())
              for x in remote_files.all_files()])
-
-    def _populate_filelist(self, files):
-        self._populate_list_ctrl(self.filelist_ctrl, files)
-
-    def _populate_shared(self, files):
-        self._populate_list_ctrl(self.shared_files_ctrl, list(files))
 
     def _get_list_changes(self, ctrl, items):
         # Find the differences between the data items bound to the
@@ -324,9 +323,9 @@ class MainFrame(wx.Frame):
                 del ctrl.datamap[_id]
                 return
 
-    def _populate_list_ctrl(self, ctrl, files):
-        """Populate control with the list of files in files."""
-
+    def _populate_filelist(self, files):
+        # Populate filelist control with the list of files in files
+        ctrl = self.filelist_ctrl
         added, __, removed = self._get_list_changes(ctrl, files)
 
         # Remove items from list control
@@ -338,10 +337,43 @@ class MainFrame(wx.Frame):
             _id = wx.NewId()
             pos = ctrl.InsertStringItem(0, item['name'])
             ctrl.SetStringItem(pos, 1, str(item['size']))
-            if 'hosting_device' in item:
-                ctrl.SetStringItem(pos, 2, item['hosting_device'])
+            ctrl.SetStringItem(pos, 2, item['hosting_device'])
+            download_button = wx.Button(ctrl, -1, label='Download')
+            ctrl.SetItemWindow(pos, 3, download_button, expand=True)
+
+            # Attach handler to download button
+            download_button.Bind(wx.EVT_BUTTON,
+                                 lambda _: self._request_file(item))
             ctrl.datamap[_id] = item
             ctrl.SetItemData(0, _id)
+
+        # Unless we do this ULC will draw its items too close to each
+        # other.
+        ctrl.Update()
+
+    def _populate_shared(self, files):
+        # Populate shared files control with the list of files in
+        # files
+        ctrl = self.shared_files_ctrl
+        added, __, removed = self._get_list_changes(ctrl, list(files))
+
+        # Remove items from list control
+        for __, _id in removed:
+            self._remove_list_item(ctrl, _id)
+
+        # Add new items to list control
+        for item in added:
+            _id = wx.NewId()
+            pos = ctrl.InsertStringItem(0, item['name'])
+            ctrl.SetStringItem(pos, 1, str(item['size']))
+            ctrl.datamap[_id] = item
+            ctrl.SetItemData(0, _id)
+
+    def _request_file(self, file_):
+        # Ask kaimu to retrieve the given file from remote device
+        success = self.kaimu_app.request_remote_file(
+            file_['hosting_device'], file_['name'],
+            self.OnFileRequestSuccess, self.OnFileRequestFailure)
 
     def _get_list_ctrl_selected_item(self, ctrl):
         return ctrl.GetNextItem(-1, wx.LIST_NEXT_ALL, wx.LIST_STATE_SELECTED)
@@ -366,12 +398,6 @@ class MainFrame(wx.Frame):
             _id = self.shared_files_ctrl.GetItemData(index)
             item = self.shared_files_ctrl.datamap[_id]
             self.kaimu_app.remove_shared_file(item)
-
-    def OnActivate(self, event):  # wxGlade: MainFrame.<event_handler>
-        item = self.filelist_ctrl.datamap[event.GetItem().GetData()]
-        success = self.kaimu_app.request_remote_file(
-            item['hosting_device'], item['name'],
-            self.OnFileRequestSuccess, self.OnFileRequestFailure)
 
     def OnFileRequestSuccess(self, path):
         wx.CallAfter(wx.MessageBox, "File downloaded to %s" % path)
@@ -553,7 +579,6 @@ class KaimuApp(object):
         downloader.download(functools.partial(
                 self._remote_file_callback,
                 on_success=on_success, on_failure=on_failure))
-
 
 
 if __name__ == '__main__':
