@@ -243,6 +243,7 @@ class MainFrame(wx.Frame):
 
         self.Bind(wx.EVT_BUTTON, self.OnAdd, self.add_file_btn)
         self.Bind(wx.EVT_BUTTON, self.OnRemove, self.remove_file_btn)
+        self.Bind(wx.EVT_NOTEBOOK_PAGE_CHANGED, self.OnPageChange, self.notebook)
         # end wxGlade
 
         self.filelist_ctrl.datamap = {}
@@ -398,6 +399,12 @@ class MainFrame(wx.Frame):
             _id = self.shared_files_ctrl.GetItemData(index)
             item = self.shared_files_ctrl.datamap[_id]
             self.kaimu_app.remove_shared_file(item)
+
+    def OnPageChange(self, event):  # wxGlade: MainFrame.<event_handler>
+        # In Windows this is needed to get a correct layout of the
+        # list items
+        self.filelist_ctrl.Refresh()
+        self.filelist_ctrl.Update()
 
     def OnFileRequestSuccess(self, path):
         wx.CallAfter(wx.MessageBox, "File downloaded to %s" % path)
