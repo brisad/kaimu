@@ -458,7 +458,7 @@ class test_FileReader(TestCase):
 
         result = FileReader().read(self.FILENAME)
 
-        open_mock.assert_called_once_with(self.FILENAME)
+        open_mock.assert_called_once_with(self.FILENAME, 'rb')
         handle.read.assert_called_once_with()
         self.assertListEqual([{"filename": self.FILENAME}, self.CONTENTS],
                              result)
@@ -469,7 +469,7 @@ class test_FileReader(TestCase):
 
         result = FileReader().read(self.FILENAME)
 
-        open_mock.assert_called_once_with(self.FILENAME)
+        open_mock.assert_called_once_with(self.FILENAME, 'rb')
         self.assertEqual([{"error": "read error"}], result)
 
     def test_read_read_failure(self, open_mock):
@@ -481,6 +481,7 @@ class test_FileReader(TestCase):
 
         handle.read.assert_called_once_with()
         self.assertEqual([{"error": "read error"}], result)
+
 
 @patch('os.path.exists')
 @patch('fileserver.open', create=True)
@@ -538,7 +539,7 @@ class test_Downloader(TestCase):
         self.do_download(['{"filename": "filename"}', 'data'])
 
         self.assertTrue(self.d.has_downloaded)
-        open_mock.assert_called_once_with(self.d.destination, 'w')
+        open_mock.assert_called_once_with(self.d.destination, 'wb')
         handle.write.assert_called_once_with("data")
         exists_mock.assert_called_once_with(self.d.destination)
 

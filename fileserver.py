@@ -11,7 +11,7 @@ import serialization
 class FileReader(object):
     def read(self, filename):
         try:
-            with open(filename) as f:
+            with open(filename, 'rb') as f:
                 data = f.read()
         except IOError:
             return [{"error": "read error"}]
@@ -177,7 +177,7 @@ class Downloader(object):
             callback({'success': False, 'reason': 'File already exists'})
             return
 
-        with open(self.destination, 'w') as f:
+        with open(self.destination, 'wb') as f:
             f.write(file_contents)
 
         self.has_downloaded = True
