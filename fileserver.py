@@ -8,6 +8,21 @@ import zmq
 import serialization
 
 
+class FileChunker(object):
+    def __init__(self, filename):
+        self.filename = filename
+        self.f = open(filename)
+
+    def __del__(self):
+        self.f.close()
+
+    def read(self, offset, size):
+        self.f.seek(offset)
+        contents = self.f.read(size)
+        header = {'filename': self.filename, 'offset': offset, 'size': size}
+        return header, contents
+
+
 class FileReader(object):
     def read(self, filename):
         try:

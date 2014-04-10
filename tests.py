@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import json
+from StringIO import StringIO
 import os.path
 import zmq
 from unittest import TestCase, main
@@ -13,7 +14,7 @@ from serialization import s_req, s_res
 from kaimu import FileList, RemoteFiles, \
     SharedFilesPublisher, DownloadableFilesSubscriber, FileListJSONEncoder, \
     ServiceTracker, service_discovery, KaimuApp
-from fileserver import FileServer, FileReader, Downloader
+from fileserver import FileServer, FileReader, FileChunker, Downloader
 
 
 class test_FileList(MockerTestCase):
@@ -442,6 +443,33 @@ class test_FileServer(TestCase):
         self.assertEqual(5566, fs.on_get_bound_port())
 
         socket.bind_to_random_port.assert_called_with("tcp://*")
+
+
+class test_FileChunker(TestCase):
+    def assert_closed(self, handle):
+        try:
+            handle.close.assert_called_once_with()
+        except AssertionError:
+            handle.__exit__.assert_called_once_with(ANY, ANY, ANY)
+
+    def test_file_is_closed_at_destruction(self):
+        d = {}
+        with patch('fileserver.open', create=True) as open_mock:
+            d['chunker'] = FileChunker('filename.txt')
+        del d['chunker']
+
+        open_mock.assert_called_once_with('filename.txt')
+        self.assert_closed(open_mock())
+
+    def test_read_chunk(self):
+        with patch('fileserver.open', create=True) as open_mock:
+            open_mock.return_value = StringIO('ABCDEFGHIJKLMNOP')
+            chunker = FileChunker('filename.txt')
+        header, contents = chunker.read(4, 5)
+
+        self.assertEqual('EFGHI', contents)
+        self.assertDictEqual(header, {'filename': 'filename.txt',
+                                      'offset': 4, 'size': 5})
 
 
 @patch('fileserver.open', create=True)
