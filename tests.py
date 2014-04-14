@@ -14,7 +14,7 @@ from serialization import s_req, s_res
 from kaimu import FileList, RemoteFiles, \
     SharedFilesPublisher, DownloadableFilesSubscriber, FileListJSONEncoder, \
     ServiceTracker, service_discovery, KaimuApp
-from fileserver import FileServer, FileReader, FileChunker, Downloader
+from fileserver import FileServer, FileChunker, Downloader
 
 
 class test_FileList(MockerTestCase):
@@ -506,44 +506,6 @@ class test_FileChunker(TestCase):
         self.assertEqual('EFGHI', contents)
         self.assertDictEqual(header, {'filename': 'filename.txt',
                                       'offset': 4, 'size': 5})
-
-@patch('fileserver.open', create=True)
-class test_FileReader(TestCase):
-    FILENAME = "file.txt"
-    CONTENTS = "File contents"
-
-    def test_read_returns_data(self, open_mock):
-        """Test that normal file read returns data"""
-
-        open_mock.return_value = MagicMock(spec=file)
-        handle = open_mock.return_value.__enter__.return_value
-        handle.read.return_value = self.CONTENTS
-
-        result = FileReader().read(self.FILENAME)
-
-        open_mock.assert_called_once_with(self.FILENAME, 'rb')
-        handle.read.assert_called_once_with()
-        self.assertListEqual([{"filename": self.FILENAME}, self.CONTENTS],
-                             result)
-
-    def test_read_open_failure(self, open_mock):
-        open_mock.return_value = MagicMock(spec=file)
-        open_mock.side_effect = IOError
-
-        result = FileReader().read(self.FILENAME)
-
-        open_mock.assert_called_once_with(self.FILENAME, 'rb')
-        self.assertEqual([{"error": "read error"}], result)
-
-    def test_read_read_failure(self, open_mock):
-        open_mock.return_value = MagicMock(spec=file)
-        handle = open_mock.return_value.__enter__.return_value
-        handle.read.side_effect = IOError
-
-        result = FileReader().read(self.FILENAME)
-
-        handle.read.assert_called_once_with()
-        self.assertEqual([{"error": "read error"}], result)
 
 
 @patch('os.path.exists')

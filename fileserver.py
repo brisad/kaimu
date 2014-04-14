@@ -37,16 +37,6 @@ class FileChunker(object):
         return header, contents
 
 
-class FileReader(object):
-    def read(self, filename):
-        try:
-            with open(filename, 'rb') as f:
-                data = f.read()
-        except IOError:
-            return [{"error": "read error"}]
-        return [{"filename": filename}, data]
-
-
 class FileServer(threading.Thread):
     def __init__(self, context, frontend_addr=None, pipe=None):
         super(FileServer, self).__init__()
