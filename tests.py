@@ -211,6 +211,22 @@ class test_FileServer(TestCase):
     def assert_json_equal(self, str1, str2):
         self.assertDictEqual(json.loads(str1), json.loads(str2))
 
+    def assert_frames_equal(self, expected, actual):
+        """Assert equality between lists of frames.
+
+        The frames in actual are expected to be strings as this is
+        supposed to be the response from server.  If frames in
+        expected are not strings they are json-encoded before being
+        compared.
+        """
+
+        self.assertEqual(len(expected), len(actual))
+        for frame1, frame2 in zip(expected, actual):
+            if isinstance(frame1, basestring):
+                self.assertEqual(frame1, frame2)
+            else:
+                self.assert_json_equal(json.dumps(frame1), frame2)
+
     # Test methods that generate pipe messages
 
     def test_add_file(self):
@@ -406,22 +422,42 @@ class test_FileServer(TestCase):
 
     def test_on_frontend_message_file_not_found(self):
         fs = FileServer(self.context, pipe=object())
-        reply = fs.on_frontend_message('{"request": "filename.txt"}')
-        self.assertListEqual(['{"error": "file not found"}'], reply)
+        response_frames = fs.on_frontend_message(
+            '{"request": "filename.txt", "offset": "1", "size": "10"}')
 
-    def test_on_frontend_message_file_transferred(self):
+        self.assert_frames_equal([{'error': 'file not found'}], response_frames)
+
+    @patch('fileserver.FileChunker')
+    def test_on_frontend_message_file_transferred(self, chunker):
         """Test that a file is transferred on request"""
 
-        filereader = Mock()
-        filereader.read.return_value = [{'filename': 'file.txt'}, 'abc']
+        chunker.return_value.read.return_value = (
+            {'filename': 'file.txt', 'offset': 2, 'size': 3}, 'abc')
 
-        fs = FileServer(self.context, pipe=object(), reader=filereader)
-        fs.on_add_file('/path/file.txt')
-        reply = fs.on_frontend_message('{"request": "file.txt"}')
+        fs = FileServer(self.context, pipe=object())
+        fs.on_add_file('/path/to/file.txt')
 
-        filereader.read.assert_called_once_with('/path/file.txt')
-        self.assert_json_equal('{"filename": "file.txt"}', reply[0])
-        self.assertEqual('abc', reply[1])
+        response_frames = fs.on_frontend_message(
+            '{"request": "file.txt", "offset": 2, "size": 3}')
+
+        chunker.assert_called_once_with('/path/to/file.txt')
+        chunker.return_value.read.assert_called_once_with(2, 3)
+
+        self.assert_frames_equal(
+            [{'filename': 'file.txt', 'offset': 2, 'size': 3}, 'abc'],
+            response_frames)
+
+    @patch('fileserver.FileChunker')
+    def test_on_frontend_message_exception_raised_in_chunker(self, chunker):
+        chunker.return_value.read.side_effect = IOError
+
+        fs = FileServer(self.context, pipe=object())
+        fs.on_add_file('/path/to/file.txt')
+
+        response_frames = fs.on_frontend_message(
+            '{"request": "file.txt", "offset": 2, "size": 100}')
+
+        self.assert_frames_equal([{'error': 'read error'}], response_frames)
 
     def test_on_get_bound_port(self):
         """Test that the port of the frontend can be retreived"""
@@ -458,7 +494,7 @@ class test_FileChunker(TestCase):
             d['chunker'] = FileChunker('filename.txt')
         del d['chunker']
 
-        open_mock.assert_called_once_with('filename.txt')
+        open_mock.assert_called_once_with('filename.txt', 'rb')
         self.assert_closed(open_mock())
 
     def test_read_chunk(self):
@@ -470,7 +506,6 @@ class test_FileChunker(TestCase):
         self.assertEqual('EFGHI', contents)
         self.assertDictEqual(header, {'filename': 'filename.txt',
                                       'offset': 4, 'size': 5})
-
 
 @patch('fileserver.open', create=True)
 class test_FileReader(TestCase):
@@ -516,27 +551,31 @@ class test_FileReader(TestCase):
 class test_Downloader(TestCase):
     ENDPOINT = "endpoint"
     FILENAME = "filename"
+    FILESIZE = 1024
 
     def setUp(self):
         self.context = Mock()
         self.socket = self.context.socket.return_value
         self.callback = Mock()
-        self.d = Downloader(self.context, self.ENDPOINT, self.FILENAME)
+        self.d = Downloader(self.context, self.ENDPOINT, self.FILENAME,
+                            self.FILESIZE)
 
     def do_download(self, recv_data):
         self.socket.recv.side_effect = recv_data
         success = self.d.download(self.callback)
         self.context.socket.assert_called_once_with(zmq.DEALER)
         self.socket.connect.assert_called_once_with(self.ENDPOINT)
-        self.socket.send.assert_called_once_with('{"request": "%s"}' %
-                                                 self.FILENAME)
+        self.socket.send.assert_called_once_with(
+            '{"request": "%s", "offset": 0, "size": %d}' %
+            (self.FILENAME, self.FILESIZE))
         self.socket.recv.assert_called_with()
         return success
 
     @patch('os.getcwd')
     def test_creation(self, getcwd, open_mock, exists_mock):
         getcwd.return_value = "/abs/path"
-        self.d = Downloader(self.context, "endpoint", "filename")
+        self.d = Downloader(self.context, self.ENDPOINT, self.FILENAME,
+                            self.FILESIZE)
         self.assertEqual(os.path.join("/abs/path", "filename"),
                          self.d.destination)
         self.assertFalse(self.d.has_downloaded)
@@ -711,10 +750,10 @@ class test_KaimuApp(TestCase):
     def do_request(self, Downloader, success_callback, failure_callback):
         self.app.addresses = {'device': '1.2.3.4'}
         self.app.remote_files = {'device': {'port': 5678}}
-        self.app.request_remote_file('device', 'file.txt',
+        self.app.request_remote_file('device', 'file.txt', 1234,
                                      success_callback, failure_callback)
-        Downloader.assert_called_once_with(self.context,
-                                           'tcp://1.2.3.4:5678', 'file.txt')
+        Downloader.assert_called_once_with(self.context, 'tcp://1.2.3.4:5678',
+                                           'file.txt', 1234)
 
     def test_remote_files_updated_only_on_new_data(self):
         """Test that remote files are only updated when necessary"""

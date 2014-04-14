@@ -373,7 +373,7 @@ class MainFrame(wx.Frame):
     def _request_file(self, file_):
         # Ask kaimu to retrieve the given file from remote device
         success = self.kaimu_app.request_remote_file(
-            file_['hosting_device'], file_['name'],
+            file_['hosting_device'], file_['name'], file_['size'],
             self.OnFileRequestSuccess, self.OnFileRequestFailure)
 
     def _get_list_ctrl_selected_item(self, ctrl):
@@ -575,11 +575,13 @@ class KaimuApp(object):
         else:
             on_failure(status['reason'])
 
-    def request_remote_file(self, device, filename, on_success, on_failure):
+    def request_remote_file(self, device, filename, filesize,
+                            on_success, on_failure):
         logging.info("Request remote file '%s' from '%s'" % (filename, device))
         endpoint = "tcp://%s:%d" % (self.addresses[device],
                                     self.remote_files[device]['port'])
-        downloader = fileserver.Downloader(self.context, endpoint, filename)
+        downloader = fileserver.Downloader(self.context, endpoint,
+                                           filename, filesize)
 
         logging.info("Starting download from %s" % endpoint)
 

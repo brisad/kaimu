@@ -9,14 +9,28 @@ import serialization
 
 
 class FileChunker(object):
+    """Handles chunked reading of file contents.
+
+    Reads chunks of a file into frames ready to be transmitted.
+    """
+
     def __init__(self, filename):
         self.filename = filename
-        self.f = open(filename)
+        self.f = open(filename, 'rb')
 
     def __del__(self):
-        self.f.close()
+        # This check prevents us from trying to close a non-existant
+        # file in case open in __init__ raised an exception.
+        if hasattr(self, 'f'):
+            self.f.close()
 
     def read(self, offset, size):
+        """Read a chunk from opened file.
+
+        Given an offset and size, return a header and actual chunk
+        contents as a tuple.
+        """
+
         self.f.seek(offset)
         contents = self.f.read(size)
         header = {'filename': self.filename, 'offset': offset, 'size': size}
@@ -34,14 +48,11 @@ class FileReader(object):
 
 
 class FileServer(threading.Thread):
-    def __init__(self, context, frontend_addr=None, pipe=None, reader=None):
+    def __init__(self, context, frontend_addr=None, pipe=None):
         super(FileServer, self).__init__()
         self.context = context
         self.frontend_addr = frontend_addr
         self.pipe = pipe
-        if reader is None:
-            reader = FileReader()
-        self.reader = reader
         self._shared_files = []
         self._bound_port = None
 
@@ -124,19 +135,29 @@ class FileServer(threading.Thread):
         return tuple(self._shared_files)
 
     def _extract_request(self, message):
-        return json.loads(message)['request']
+        decoded_msg = json.loads(message)
+        return [decoded_msg[key] for key in ['request', 'offset', 'size']]
 
     def _encode_response(self, response):
-        # Serialize dicts to json, leave strings as is
+        # Serialize dicts to json, leave strings as they are
         return [json.dumps(frame) if not isinstance(frame, basestring)
                 else frame for frame in response]
 
     def on_frontend_message(self, message):
-        filename = self._extract_request(message)
+        # Process message from client.  Returns list of zmq frames to
+        # be sent back to client.
+        filename, offset, size = self._extract_request(message)
         for path in self._shared_files:
             if os.path.basename(path) == filename:
-                return self._encode_response(self.reader.read(path))
-        return ['{"error": "file not found"}']
+                try:
+                    # This opens the file for every request.  We'll
+                    # want to cache this later
+                    chunker = FileChunker(path)
+                    message = chunker.read(offset, size)
+                except IOError:
+                    message = [{"error": "read error"}]
+                return self._encode_response(message)
+        return self._encode_response([{"error": "file not found"}])
 
     def get_bound_port(self):
         self.pipe.send(serialization.s_req('get_bound_port', None))
@@ -151,10 +172,13 @@ class FileServer(threading.Thread):
 
 
 class Downloader(object):
-    def __init__(self, context, endpoint, filename):
+    """Client for downloading files from server"""
+
+    def __init__(self, context, endpoint, filename, filesize):
         self.context = context
         self.endpoint = endpoint
         self.filename = filename
+        self.filesize = filesize
         self.destination = os.path.join(os.getcwd(), filename)
         self.has_downloaded = False
 
@@ -173,7 +197,8 @@ class Downloader(object):
 
         socket = self.context.socket(zmq.DEALER)
         socket.connect(self.endpoint)
-        msg = '{"request": "%s"}' % self.filename
+        msg = ('{"request": "%s", "offset": 0, "size": %d}' %
+               (self.filename, self.filesize))
         socket.send(msg.encode('utf-8'))
         response = socket.recv()
         try:
@@ -218,7 +243,7 @@ if __name__ == '__main__':
         while True:
             s = context.socket(zmq.DEALER)
             s.connect("tcp://localhost:%d" % serverport)
-            msg = '{"request": "%s"}' % req
+            msg = '{"request": "%s", "offset": 0, "size": 42}' % req
             print "Sending:", msg
             s.send(msg)
             header = s.recv()
