@@ -8,6 +8,49 @@ import zmq
 import serialization
 
 
+def file_request_msg(filename, offset, size):
+    """Return serialized file request message"""
+
+    return json.dumps({'request': filename,
+                       'offset': int(offset), 'size': int(size)})
+
+def parse_file_request(message):
+    """Return deserialized message as a tuple"""
+
+    def unpack(request, offset, size):
+        return request, int(offset), int(size)
+
+    filename, offset, size = unpack(**json.loads(message))
+    return filename, offset, size
+
+def file_header(filename, offset, size):
+    """Return serialized file header"""
+
+    return json.dumps({'filename': filename, 'offset': offset, 'size': size})
+
+def parse_file_header(header):
+    """Return deserialized header contents as a dict
+
+    The reason for returning a dict instead of a tuple is that the
+    contents of the header can take different forms, and thus also the
+    items in the returned dict.
+    """
+
+    def unpack(filename, offset, size):
+        return filename, int(offset), int(size)
+
+    decoded_header = json.loads(header)
+    if 'error' in decoded_header:
+        return {'error': decoded_header['error']}
+    filename, offset, size = unpack(**decoded_header)
+    return {'filename': filename, 'offset': offset, 'size': size}
+
+def error_msg(description):
+    """Return serialized error message"""
+
+    return json.dumps({'error': description})
+
+
 class FileChunker(object):
     """Handles chunked reading of file contents.
 
@@ -124,30 +167,23 @@ class FileServer(threading.Thread):
     def on_get_files(self, dummy=None):
         return tuple(self._shared_files)
 
-    def _extract_request(self, message):
-        decoded_msg = json.loads(message)
-        return [decoded_msg[key] for key in ['request', 'offset', 'size']]
-
-    def _encode_response(self, response):
-        # Serialize dicts to json, leave strings as they are
-        return [json.dumps(frame) if not isinstance(frame, basestring)
-                else frame for frame in response]
-
     def on_frontend_message(self, message):
         # Process message from client.  Returns list of zmq frames to
         # be sent back to client.
-        filename, offset, size = self._extract_request(message)
+        filename, offset, size = parse_file_request(message)
         for path in self._shared_files:
             if os.path.basename(path) == filename:
                 try:
                     # This opens the file for every request.  We'll
                     # want to cache this later
                     chunker = FileChunker(path)
-                    message = chunker.read(offset, size)
+                    header, contents = chunker.read(offset, size)
+                    frames = [file_header(**header), contents]
                 except IOError:
-                    message = [{"error": "read error"}]
-                return self._encode_response(message)
-        return self._encode_response([{"error": "file not found"}])
+                    frames = [error_msg('read error')]
+                return frames
+        # If we got here we didn't have the requested file
+        return [error_msg('file not found')]
 
     def get_bound_port(self):
         self.pipe.send(serialization.s_req('get_bound_port', None))
@@ -187,26 +223,30 @@ class Downloader(object):
 
         socket = self.context.socket(zmq.DEALER)
         socket.connect(self.endpoint)
-        msg = ('{"request": "%s", "offset": 0, "size": %d}' %
-               (self.filename, self.filesize))
-        socket.send(msg.encode('utf-8'))
-        response = socket.recv()
+
+        # Create and send request to server
+        request_msg = file_request_msg(self.filename, 0, self.filesize)
+        socket.send(request_msg.encode('utf-8'))
+
+        first_frame = socket.recv()
         try:
-            message = json.loads(response)
+            header = parse_file_header(first_frame)
         except (ValueError, TypeError):
             callback({'success': False,
                       'reason': 'Invalid data received from server'})
             return
 
-        if 'error' in message:
-            callback({'success': False, 'reason': message['error']})
+        if 'error' in header:
+            callback({'success': False, 'reason': header['error']})
             return
 
+        # No error from server, we can get the file contents now
         file_contents = socket.recv()
         if os.path.exists(self.destination):
             callback({'success': False, 'reason': 'File already exists'})
             return
 
+        # Write contents to destination file
         with open(self.destination, 'wb') as f:
             f.write(file_contents)
 
@@ -233,7 +273,7 @@ if __name__ == '__main__':
         while True:
             s = context.socket(zmq.DEALER)
             s.connect("tcp://localhost:%d" % serverport)
-            msg = '{"request": "%s", "offset": 0, "size": 42}' % req
+            msg = file_request_msg(req, 0, 42)
             print "Sending:", msg
             s.send(msg)
             header = s.recv()
@@ -241,6 +281,6 @@ if __name__ == '__main__':
             if 'filename' in header:
                 print s.recv()
             req = raw_input()
-    except:
+    except (EOFError, KeyboardInterrupt):
         pass
     server.stop()

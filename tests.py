@@ -15,7 +15,7 @@ from kaimu import FileList, RemoteFiles, \
     SharedFilesPublisher, DownloadableFilesSubscriber, FileListJSONEncoder, \
     ServiceTracker, service_discovery, KaimuApp
 from fileserver import FileServer, FileChunker, Downloader
-
+import fileserver
 
 class test_FileList(MockerTestCase):
     def assertNotify(self):
@@ -423,7 +423,7 @@ class test_FileServer(TestCase):
     def test_on_frontend_message_file_not_found(self):
         fs = FileServer(self.context, pipe=object())
         response_frames = fs.on_frontend_message(
-            '{"request": "filename.txt", "offset": "1", "size": "10"}')
+            fileserver.file_request_msg('filename.txt', 1, 10))
 
         self.assert_frames_equal([{'error': 'file not found'}], response_frames)
 
@@ -438,7 +438,7 @@ class test_FileServer(TestCase):
         fs.on_add_file('/path/to/file.txt')
 
         response_frames = fs.on_frontend_message(
-            '{"request": "file.txt", "offset": 2, "size": 3}')
+            fileserver.file_request_msg('file.txt', 2, 3))
 
         chunker.assert_called_once_with('/path/to/file.txt')
         chunker.return_value.read.assert_called_once_with(2, 3)
@@ -455,7 +455,7 @@ class test_FileServer(TestCase):
         fs.on_add_file('/path/to/file.txt')
 
         response_frames = fs.on_frontend_message(
-            '{"request": "file.txt", "offset": 2, "size": 100}')
+            fileserver.file_request_msg('file.txt', 2, 100))
 
         self.assert_frames_equal([{'error': 'read error'}], response_frames)
 
@@ -515,6 +515,8 @@ class test_Downloader(TestCase):
     FILENAME = "filename"
     FILESIZE = 1024
 
+    DEF_DATA = 'data_contents'
+
     def setUp(self):
         self.context = Mock()
         self.socket = self.context.socket.return_value
@@ -522,14 +524,20 @@ class test_Downloader(TestCase):
         self.d = Downloader(self.context, self.ENDPOINT, self.FILENAME,
                             self.FILESIZE)
 
-    def do_download(self, recv_data):
+    def do_download(self, recv_data=None):
+
+        if recv_data is None:
+            recv_data = [
+                fileserver.file_header('filename', 0, len(self.DEF_DATA)),
+                self.DEF_DATA
+                ]
+
         self.socket.recv.side_effect = recv_data
         success = self.d.download(self.callback)
         self.context.socket.assert_called_once_with(zmq.DEALER)
         self.socket.connect.assert_called_once_with(self.ENDPOINT)
         self.socket.send.assert_called_once_with(
-            '{"request": "%s", "offset": 0, "size": %d}' %
-            (self.FILENAME, self.FILESIZE))
+            fileserver.file_request_msg(self.FILENAME, 0, self.FILESIZE))
         self.socket.recv.assert_called_with()
         return success
 
@@ -543,7 +551,7 @@ class test_Downloader(TestCase):
         self.assertFalse(self.d.has_downloaded)
 
     def test_download_error(self, open_mock, exists_mock):
-        self.do_download(['{"error": "File not found"}'])
+        self.do_download([fileserver.error_msg('File not found')])
         self.assertFalse(self.d.has_downloaded)
         self.callback.assert_called_once_with({
                 'success': False,
@@ -565,11 +573,11 @@ class test_Downloader(TestCase):
         handle = open_mock.return_value.__enter__.return_value
         exists_mock.return_value = False
 
-        self.do_download(['{"filename": "filename"}', 'data'])
+        self.do_download()
 
         self.assertTrue(self.d.has_downloaded)
         open_mock.assert_called_once_with(self.d.destination, 'wb')
-        handle.write.assert_called_once_with("data")
+        handle.write.assert_called_once_with(self.DEF_DATA)
         exists_mock.assert_called_once_with(self.d.destination)
 
         self.callback.assert_called_once_with({
@@ -579,7 +587,7 @@ class test_Downloader(TestCase):
         open_mock.return_value = MagicMock(spec=file)
         exists_mock.return_value = True
 
-        self.do_download(['{"filename": "filename"}', 'data'])
+        self.do_download()
         self.assertFalse(self.d.has_downloaded)
         assert not open_mock.called, "Open shouldn't have been called"
         exists_mock.assert_called_once_with(self.d.destination)

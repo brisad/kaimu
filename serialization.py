@@ -1,6 +1,6 @@
 """This module is a wrapper around json methods for (de)serializing
-two predefined objects: Request and Response.  There are intended to
-be used for calls between threads.
+two predefined objects: Request and Response.  They are intended to be
+used for calls between threads.
 
 Named tuple objects:
 Request -- contains two parameters, 'method' and 'params'
