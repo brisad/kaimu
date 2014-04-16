@@ -7,8 +7,6 @@ import os.path
 import zmq
 from unittest import TestCase, main
 from mock import patch, Mock, MagicMock, ANY
-from mocker import MockerTestCase, expect
-from mocker import ANY as mockerANY
 import serialization
 from serialization import s_req, s_res
 from kaimu import FileList, RemoteFiles, \
@@ -17,173 +15,175 @@ from kaimu import FileList, RemoteFiles, \
 from fileserver import FileServer, FileChunker, Downloader
 import fileserver
 
-class test_FileList(MockerTestCase):
-    def assertNotify(self):
-        listener = self.mocker.mock()
-        f = FileList(listener, ['file1', 'file2'])
-        listener(f)
-        self.mocker.replay()
-        return f
+class test_FileList(TestCase):
+    def setUp(self):
+        self.listener = Mock()
+        self.filelist = FileList(self.listener, ['file1', 'file2'])
+
+    def assert_notified(self):
+        """Assert that the listener got notified once"""
+
+        self.listener.assert_called_once_with(self.filelist)
 
     def test_generator(self):
-        f = FileList(None, ['file1', 'file2'])
-        self.assertEqual(['file1', 'file2'], [x for x in f])
+        self.assertEqual(['file1', 'file2'], [x for x in self.filelist])
 
     def test_set_items_notify(self):
-        self.assertNotify().set_items(['file1', 'file2'])
+        self.filelist.set_items(['file1', 'file2'])
+        self.assert_notified()
 
     def test_add_item_notify(self):
-        self.assertNotify().add_item('item')
+        self.filelist.add_item('item')
+        self.assert_notified()
 
     def test_del_item(self):
-        f = FileList(None, ['file1', 'file2'])
-        f.del_item('file1')
-        self.assertEqual(['file2'], [x for x in f])
+        self.filelist.del_item('file1')
+        self.assertEqual(['file2'], [x for x in self.filelist])
 
     def test_del_item_notify(self):
-        self.assertNotify().del_item('file1')
+        self.filelist.del_item('file1')
+        self.assert_notified()
 
 
-class test_RemoteFiles(MockerTestCase):
-    def assertNotify(self):
-        listener = self.mocker.mock()
-        f = RemoteFiles(listener)
-        listener(f)
-        self.mocker.replay()
-        return f
+class test_RemoteFiles(TestCase):
+    def setUp(self):
+        self.listener = Mock()
+        self.rfiles = RemoteFiles(self.listener)
+
+    def assert_notified(self):
+        """Assert that the listener got notified once"""
+
+        self.listener.assert_called_once_with(self.rfiles)
 
     def test_add_item_notify(self):
-        self.assertNotify()['host1'] = object()
+        self.rfiles['host1'] = object()
+        self.assert_notified()
 
     def test_del_item_notify(self):
-        f = self.assertNotify()
-        f._dict['host1'] = object()  # Avoid notification here
-        del f['host1']
+        self.rfiles._dict['host1'] = object()  # Avoid notification here
+        del self.rfiles['host1']
+        self.assert_notified()
 
     def test_all_files(self):
-        f = RemoteFiles(None)
-        f['host1'] = {'files': ['file1', 'file2'], 'port': 0}
-        f['host2'] = {'files': ['file1'], 'port': 1000}
+        self.rfiles['host1'] = {'files': ['file1', 'file2'], 'port': 0}
+        self.rfiles['host2'] = {'files': ['file1'], 'port': 1000}
         self.assertListEqual(
             [['host1', 'file1'], ['host1', 'file2'], ['host2', 'file1']],
-            f.all_files())
+            self.rfiles.all_files())
 
     def test_str(self):
-        f = RemoteFiles(None)
-        f['host1'] = [1, 2, 3]
-        self.assertEqual("{'host1': [1, 2, 3]}", str(f))
+        self.rfiles['host1'] = [1, 2, 3]
+        self.assertEqual("{'host1': [1, 2, 3]}", str(self.rfiles))
 
 
-class test_SharedFilesPublisher(MockerTestCase):
+class test_SharedFilesPublisher(TestCase):
     def test_publish_files(self):
-        filelist = object()
-
-        serialize_func = self.mocker.mock()
-        serialize_func(filelist)
-        self.mocker.result('serialized data')
-
-        socket = self.mocker.mock()
-        socket.send('serialized data')
-
-        self.mocker.replay()
+        filelist = Mock()
+        serialize_func = Mock()
+        serialize_func.return_value = 'serialized data'
+        socket = Mock()
 
         pub = SharedFilesPublisher(socket, serialize_func)
         pub.publish_files(filelist)
 
+        serialize_func.assert_called_once_with(filelist)
+        socket.send.assert_called_once_with('serialized data')
 
-class test_DownloadableFilesSubscriber(MockerTestCase):
+
+class test_DownloadableFilesSubscriber(TestCase):
     def test_receive_files_available(self):
-        socket = self.mocker.mock()
-        socket.recv(zmq.DONTWAIT)
-        self.mocker.result('serialized list')
+        socket = Mock()
+        socket.recv.return_value = 'serialized list'
+        deserialize_func = Mock()
+        deserialize_func.return_value = 'the list'
 
-        unserialize_func = self.mocker.mock()
-        unserialize_func('serialized list')
-        self.mocker.result('the list')
-        self.mocker.replay()
-
-        sub = DownloadableFilesSubscriber(socket, unserialize_func)
+        sub = DownloadableFilesSubscriber(socket, deserialize_func)
         filelist = sub.receive_files()
 
+        socket.recv.assert_called_once_with(zmq.DONTWAIT)
+        deserialize_func.assert_called_once_with('serialized list')
         self.assertEqual('the list', filelist)
 
     def test_receive_files_unavailable(self):
-        socket = self.mocker.mock()
-        socket.recv(zmq.DONTWAIT)
-        self.mocker.throw(zmq.ZMQError)
-        self.mocker.replay()
+        socket = Mock()
+        socket.recv.side_effect = zmq.ZMQError
 
         sub = DownloadableFilesSubscriber(socket, None)
         filelist = sub.receive_files()
 
+        socket.recv.assert_called_once_with(zmq.DONTWAIT)
         self.assertEqual(None, filelist)
 
 
-class test_FileListJSONEncoder(MockerTestCase):
+class test_FileListJSONEncoder(TestCase):
     def test_encode_list(self):
-        filelist = self.mocker.mock()
-        filelist.items
-        self.mocker.count(1, 2)
-        self.mocker.result(['a', 'b', 'c'])
-        self.mocker.replay()
+        filelist = Mock()
+        filelist.items = ['a', 'b', 'c']
 
         data = json.dumps(filelist, cls=FileListJSONEncoder)
         self.assertEqual('["a", "b", "c"]', data)
 
+@patch('zmq.Poller')
+class test_ServiceTracker(TestCase):
+    def make_discoversock(self, poller, *args):
+        """Return a mock discovery socket with incoming data"""
 
-class test_ServiceTracker(MockerTestCase):
-    def setUp(self):
-        self.discoversock = self.mocker.mock()
-        Poller = self.mocker.replace("zmq.Poller")
-        self.poller = Poller()
-        self.poller.register(self.discoversock, zmq.POLLIN)
+        discoversock = Mock()
+        # Tell poller to indicate new data for every data entry
+        # passed.  None specifies no new data, and causes poller to
+        # return an empty dict when polling.
+        poller.poll.side_effect = map(
+            lambda x: {discoversock: zmq.POLLIN} if x is not None else {},
+            args) + [{}]  # End with empty poll
+        # Tell discover socket to return all data except when it's None
+        discoversock.recv.side_effect = filter(lambda x: x is not None, args)
+        return discoversock
 
-    def add_poll(self, recv_data=None):
-        if recv_data is None:
-            expect(self.poller.poll(0)).result({})
-        else:
-            expect(self.poller.poll(0)).result({self.discoversock: zmq.POLLIN})
-            expect(self.discoversock.recv()).result(recv_data)
+    def test_poll_data(self, Poller):
+        discoversock = self.make_discoversock(
+            Poller(),
+            '["N", "hostA", "10.0.2.15", 9999]',
+            '["R", "hostB"]')
 
-    def test_poll_data(self):
-        self.add_poll('["N", "hostA", "10.0.2.15", 9999]')
-        self.add_poll('["R", "hostB"]')
-        self.add_poll(None)
-        self.mocker.replay()
-
-        tracker = ServiceTracker(self.discoversock, None)
+        tracker = ServiceTracker(discoversock, None)
         services = tracker._poll()
+
         self.assertListEqual([["hostA", "10.0.2.15", 9999]], services.new)
         self.assertListEqual([["hostB"]], services.removed)
 
-    def test_poll_no_data(self):
-        self.add_poll(None)
-        self.mocker.replay()
+    def test_poll_no_data(self, Poller):
+        discoversock = self.make_discoversock(Poller())
 
-        tracker = ServiceTracker(self.discoversock, None)
+        tracker = ServiceTracker(discoversock, None)
         services = tracker._poll()
+
         self.assertListEqual([], services.new)
         self.assertListEqual([], services.removed)
 
-    def test_register_poller(self):
-        self.mocker.replay()
-        tracker = ServiceTracker(self.discoversock, None)
+    def test_register_poller(self, Poller):
+        poller = Poller()
+        discoversock = self.make_discoversock(poller)
 
-    def test_track(self):
-        with self.mocker.order():
-            subsock = self.mocker.mock()
-            self.add_poll('["N", "hostA", "192.168.0.10", 1234]')
-            self.add_poll(None)
-            subsock.connect("tcp://192.168.0.10:1234")
-            self.add_poll('["R", "hostA"]')
-            self.add_poll(None)
-            subsock.disconnect("tcp://192.168.0.10:1234")
-            self.mocker.replay()
+        tracker = ServiceTracker(discoversock, None)
 
-        tracker = ServiceTracker(self.discoversock, subsock)
+        poller.register.assert_called_once_with(discoversock, zmq.POLLIN)
+
+    def test_track(self, Poller):
+        discoversock = self.make_discoversock(
+            Poller(),
+            '["N", "hostA", "192.168.0.10", 1234]',
+            None,  # No data, causes first track() to return
+            '["R", "hostA"]')
+        subsock = Mock()
+
+        tracker = ServiceTracker(discoversock, subsock)
+
         tracker.track()
+        subsock.connect.assert_called_once_with('tcp://192.168.0.10:1234')
         self.assertEqual({"hostA": "tcp://192.168.0.10:1234"}, tracker.hosts)
+
         services = tracker.track()
+        subsock.disconnect.assert_called_once_with('tcp://192.168.0.10:1234')
         self.assertEqual({}, tracker.hosts)
         self.assertListEqual([], services.new)
         self.assertListEqual([["hostA"]], services.removed)
