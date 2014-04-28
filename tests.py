@@ -6,7 +6,7 @@ from StringIO import StringIO
 import os.path
 import zmq
 from unittest import TestCase, main
-from mock import patch, Mock, MagicMock, ANY
+from mock import patch, Mock, MagicMock, ANY, call
 import serialization
 from serialization import s_req, s_res
 from kaimu import FileList, RemoteFiles, \
@@ -507,15 +507,21 @@ class test_FileChunker(TestCase):
         self.assertDictEqual(header, {'filename': 'filename.txt',
                                       'offset': 4, 'size': 5})
 
+    def test_read_result_header_contains_basename(self):
+        with patch('fileserver.open', create=True) as open_mock:
+            chunker = FileChunker('/path/to/file.txt')
+        header, __ = chunker.read(0, 0)
+
+        self.assertEqual('file.txt', header['filename'])
+
 
 @patch('os.path.exists')
 @patch('fileserver.open', create=True)
 class test_Downloader(TestCase):
     ENDPOINT = "endpoint"
     FILENAME = "filename"
-    FILESIZE = 1024
-
-    DEF_DATA = 'data_contents'
+    FILESIZE = 8
+    DEF_DATA = 'data1234'
 
     def setUp(self):
         self.context = Mock()
@@ -524,8 +530,7 @@ class test_Downloader(TestCase):
         self.d = Downloader(self.context, self.ENDPOINT, self.FILENAME,
                             self.FILESIZE)
 
-    def do_download(self, recv_data=None):
-
+    def do_download(self, recv_data=None, expect_success=True):
         if recv_data is None:
             recv_data = [
                 fileserver.file_header('filename', 0, len(self.DEF_DATA)),
@@ -533,13 +538,32 @@ class test_Downloader(TestCase):
                 ]
 
         self.socket.recv.side_effect = recv_data
-        success = self.d.download(self.callback)
+        self.d.download(self.callback)
         self.context.socket.assert_called_once_with(zmq.DEALER)
         self.socket.connect.assert_called_once_with(self.ENDPOINT)
-        self.socket.send.assert_called_once_with(
-            fileserver.file_request_msg(self.FILENAME, 0, self.FILESIZE))
-        self.socket.recv.assert_called_with()
-        return success
+
+        if expect_success:
+            self.callback.assert_called_once_with({
+                    'success': True, 'path': self.d.destination})
+            self.assertTrue(self.d.has_downloaded)
+        else:
+            self.assertFalse(self.d.has_downloaded)
+
+    def recv_chunks(self, chunks):
+        # Create chunks to be received by generating offset and size
+        # for each chunk in input.  Used to control mock behavior.
+        ret = []
+        offset = 0
+        for chunk in chunks:
+            header = fileserver.file_header(self.FILENAME, offset, len(chunk))
+            offset += len(chunk)
+            ret += [header, chunk]
+        return ret
+
+    def assert_chunks_requested(self, chunks):
+        calls = [call.send(fileserver.file_request_msg(
+                    self.FILENAME, offset, size)) for offset, size in chunks]
+        self.socket.assert_has_calls(calls, any_order=True)
 
     @patch('os.getcwd')
     def test_creation(self, getcwd, open_mock, exists_mock):
@@ -551,8 +575,10 @@ class test_Downloader(TestCase):
         self.assertFalse(self.d.has_downloaded)
 
     def test_download_error(self, open_mock, exists_mock):
-        self.do_download([fileserver.error_msg('File not found')])
-        self.assertFalse(self.d.has_downloaded)
+        exists_mock.return_value = False
+
+        self.do_download([fileserver.error_msg('File not found')],
+                         expect_success=False)
         self.callback.assert_called_once_with({
                 'success': False,
                 'reason': 'File not found'})
@@ -560,39 +586,87 @@ class test_Downloader(TestCase):
     def test_download_error_no_json_data(self, open_mock, exists_mock):
         """Test that invalid json data is detected"""
 
-        self.do_download([{}])
-        self.assertFalse(self.d.has_downloaded)
+        exists_mock.return_value = False
+
+        self.do_download([{}], expect_success=False)
         self.callback.assert_called_once_with({
                 'success': False,
                 'reason': 'Invalid data received from server'})
+
+    def test_download_error_too_short_chunk(self, open_mock, exists_mock):
+        open_mock.return_value = MagicMock(spec=file)
+        exists_mock.return_value = False
+
+        recv_data = self.recv_chunks(['abcd', '123'])
+
+        self.d.chunksize = 4
+        self.do_download(recv_data, expect_success=False)
+
+        self.assert_chunks_requested([[0, 4], [4, 4]])
+
+    def test_download_error_too_long_chunk(self, open_mock, exists_mock):
+        open_mock.return_value = MagicMock(spec=file)
+        exists_mock.return_value = False
+
+        recv_data = self.recv_chunks(['abcd', '12345'])
+
+        self.d.chunksize = 4
+        self.do_download(recv_data, expect_success=False)
+
+        self.assert_chunks_requested([[0, 4], [4, 4]])
+
+    def test_download_error_contents_size_wrong(self, open_mock, exists_mock):
+        open_mock.return_value = MagicMock(spec=file)
+        exists_mock.return_value = False
+
+        recv_data = self.recv_chunks(['abcd'])
+        recv_data[1] = 'abc'  # Shorten data
+
+        self.d.chunksize = 4
+        self.do_download(recv_data, expect_success=False)
+
+        self.assert_chunks_requested([[0, 4]])
+
+    def assert_file_written(self, file_contents, open_mock, exists_mock):
+        open_mock.assert_called_once_with(self.d.destination, 'wb')
+        handle = open_mock.return_value.__enter__.return_value
+        if isinstance(file_contents, basestring):
+            handle.write.assert_called_once_with(file_contents)
+        else:
+            calls = [call.write(chunk) for chunk in file_contents]
+            handle.assert_has_calls(calls)
+
+    def test_download_gets_all_chunks(self, open_mock, exists_mock):
+        open_mock.return_value = MagicMock(spec=file)
+        exists_mock.return_value = False
+        recv_data = self.recv_chunks(['abc', 'def', 'gh'])
+
+        self.d = Downloader(self.context, 'endpoint', 'filename', 8)
+        self.d.chunksize = 3
+        self.do_download(recv_data)
+
+        self.assert_chunks_requested([[0, 3], [3, 3], [6, 2]])
+        self.assert_file_written(['abc', 'def', 'gh'], open_mock, exists_mock)
 
     def test_download_writes_file(self, open_mock, exists_mock):
         """Test that a successful download writes to file to disk"""
 
         open_mock.return_value = MagicMock(spec=file)
-        handle = open_mock.return_value.__enter__.return_value
         exists_mock.return_value = False
 
         self.do_download()
 
-        self.assertTrue(self.d.has_downloaded)
-        open_mock.assert_called_once_with(self.d.destination, 'wb')
-        handle.write.assert_called_once_with(self.DEF_DATA)
-        exists_mock.assert_called_once_with(self.d.destination)
-
-        self.callback.assert_called_once_with({
-                'success': True, 'path': self.d.destination})
+        self.assert_chunks_requested([[0, self.FILESIZE]])
+        self.assert_file_written(self.DEF_DATA, open_mock, exists_mock)
 
     def test_download_does_not_overwrite(self, open_mock, exists_mock):
         open_mock.return_value = MagicMock(spec=file)
         exists_mock.return_value = True
 
-        self.do_download()
-        self.assertFalse(self.d.has_downloaded)
+        self.d.download(self.callback)
         assert not open_mock.called, "Open shouldn't have been called"
         exists_mock.assert_called_once_with(self.d.destination)
 
-        self.assertEqual(2, self.socket.recv.call_count)
         self.callback.assert_called_once_with({
                 'success': False, 'reason': 'File already exists'})
 

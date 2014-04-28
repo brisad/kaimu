@@ -1,3 +1,4 @@
+import logging
 import itertools
 import threading
 import os
@@ -6,6 +7,10 @@ import json
 import sys
 import zmq
 import serialization
+
+
+class DownloadError(Exception):
+    pass
 
 
 def file_request_msg(filename, offset, size):
@@ -72,11 +77,19 @@ class FileChunker(object):
 
         Given an offset and size, return a header and actual chunk
         contents as a tuple.
+
+        The header contains offset, size and filename.  The offset and
+        size will have the same values as the passed arguments.  The
+        filename on the other hand will only contain the basename of
+        the opened file.  This is because this header will be
+        transmitted and then the path to the file should not be
+        present.
         """
 
         self.f.seek(offset)
         contents = self.f.read(size)
-        header = {'filename': self.filename, 'offset': offset, 'size': size}
+        header = {'filename': os.path.basename(self.filename),
+                  'offset': offset, 'size': size}
         return header, contents
 
 
@@ -141,6 +154,16 @@ class FileServer(threading.Thread):
         frontend.send_multipart([identity] + self.on_frontend_message(message))
 
     def add_file(self, filename):
+        """Add file to be shared.
+
+        filename is the full path of the file to be shared.
+
+        The basename of the filename cannot collide with the basename
+        of another file already shared.  This is because when serving
+        files on the frontend, basenames are used to identify the
+        files.
+        """
+
         self.pipe.send(serialization.s_req('add_file', filename))
         response = self.pipe.recv()
         if response and serialization.deserialize(response).result is False:
@@ -178,6 +201,7 @@ class FileServer(threading.Thread):
                     # want to cache this later
                     chunker = FileChunker(path)
                     header, contents = chunker.read(offset, size)
+                    logging.debug('Server response header: %s', header)
                     frames = [file_header(**header), contents]
                 except IOError:
                     frames = [error_msg('read error')]
@@ -200,13 +224,82 @@ class FileServer(threading.Thread):
 class Downloader(object):
     """Client for downloading files from server"""
 
-    def __init__(self, context, endpoint, filename, filesize):
+    def __init__(self, context, endpoint, filename, filesize, chunksize=None):
         self.context = context
         self.endpoint = endpoint
         self.filename = filename
         self.filesize = filesize
+        if chunksize is None:
+            chunksize = filesize
+        self.chunksize = chunksize
         self.destination = os.path.join(os.getcwd(), filename)
         self.has_downloaded = False
+
+    def _validate_header(self, header, offset, size):
+        # Check that header is consistent with what we expect.
+        # Otherwise raise DownloadError.
+        if 'error' in header:
+            raise DownloadError({'success': False, 'reason': header['error']})
+        elif header['filename'] != self.filename:
+            print header['filename']
+            print self.filename
+            raise DownloadError(
+                {'success': False,
+                 'reason': 'Wrong filename received from server'})
+        elif header['offset'] != offset:
+            raise DownloadError(
+                {'success': False,
+                 'reason': 'Wrong offset received from server'})
+        elif header['size'] != size:
+            raise DownloadError(
+                {'success': False,
+                 'reason': 'Wrong size received from server'})
+
+    def _validate_chunk(self, chunk, size):
+        # Check that chunk is consistent with what we expect.
+        # Otherwise raise DownloadError.
+        if len(chunk) != size:
+            raise DownloadError(
+                {'success': False,
+                 'reason': 'Wrong data received from server'})
+
+    def _chunks(self, chunksize, total):
+        # Generate tuples of offset and size describing chunks of a
+        # file.  Continue until total size has been exhausted.
+        offset = 0
+        while offset < total:
+            size = min(chunksize, total - offset)
+            yield offset, size
+            offset += size
+
+    def _get_all_chunks(self, socket, filehandle):
+        # Query all chunks making up a file from socket and write it
+        # to filehandle.  For all chunks, send a request, receive the
+        # response and append it to file.
+        for offset, size in self._chunks(self.chunksize, self.filesize):
+            # Create and send request to server
+            request_msg = file_request_msg(self.filename, offset, size)
+            logging.debug('Request chunk: %s', request_msg)
+            socket.send(request_msg.encode('utf-8'))
+
+            # The first frame contains the header
+            first_frame = socket.recv()
+            try:
+                header = parse_file_header(first_frame)
+            except (ValueError, TypeError):
+                raise DownloadError(
+                    {'success': False,
+                     'reason': 'Invalid data received from server'})
+
+            # Header had the right structure, now check that it is
+            # what we expect it to be
+            self._validate_header(header, offset, size)
+
+            # Retreive contents and validate
+            file_chunk = socket.recv()
+            self._validate_chunk(file_chunk, size)
+
+            filehandle.write(file_chunk)
 
     def download(self, callback):
         """Start download of file to disk
@@ -221,34 +314,19 @@ class Downloader(object):
         the failure.
         """
 
-        socket = self.context.socket(zmq.DEALER)
-        socket.connect(self.endpoint)
-
-        # Create and send request to server
-        request_msg = file_request_msg(self.filename, 0, self.filesize)
-        socket.send(request_msg.encode('utf-8'))
-
-        first_frame = socket.recv()
-        try:
-            header = parse_file_header(first_frame)
-        except (ValueError, TypeError):
-            callback({'success': False,
-                      'reason': 'Invalid data received from server'})
-            return
-
-        if 'error' in header:
-            callback({'success': False, 'reason': header['error']})
-            return
-
-        # No error from server, we can get the file contents now
-        file_contents = socket.recv()
         if os.path.exists(self.destination):
             callback({'success': False, 'reason': 'File already exists'})
             return
 
-        # Write contents to destination file
+        socket = self.context.socket(zmq.DEALER)
+        socket.connect(self.endpoint)
+
         with open(self.destination, 'wb') as f:
-            f.write(file_contents)
+            try:
+                self._get_all_chunks(socket, f)
+            except DownloadError as error:
+                callback(error.args[0])
+                return
 
         self.has_downloaded = True
         callback({'success': True, 'path': self.destination})
