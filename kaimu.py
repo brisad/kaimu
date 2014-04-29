@@ -343,8 +343,10 @@ class MainFrame(wx.Frame):
             ctrl.SetItemWindow(pos, 3, download_button, expand=True)
 
             # Attach handler to download button
-            download_button.Bind(wx.EVT_BUTTON,
-                                 lambda _: self._request_file(item))
+            def start_download(item):
+                return lambda _: self._request_file(item)
+            download_button.Bind(wx.EVT_BUTTON, start_download(item))
+
             ctrl.datamap[_id] = item
             ctrl.SetItemData(0, _id)
 
