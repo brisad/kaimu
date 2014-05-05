@@ -4,8 +4,8 @@ kaimu
 Tired of the same old problem of how to transfer a file between your
 computers in your LAN? Don't want to configure FTP, SSH or Samba? Had
 enough of running around with USB-sticks? And how stupid doesn't it
-feel when you resort to e-mailing files to ourself just to get them to
-the computer right next to you?
+feel when you resort to e-mailing files to yourself just to get them
+to the computer right next to you?
 
 `kaimu` enables effortless file sharing by relieving you from any
 network configuration whatsoever. Start the application on two
