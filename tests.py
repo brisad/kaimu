@@ -804,11 +804,13 @@ class test_KaimuApp(TestCase):
         self.app.publisher.publish_files.assert_called_once_with(
             self.app.shared_files)
 
-    def do_request(self, Downloader, success_callback, failure_callback):
+    def do_request(self, Downloader, success_callback, failure_callback,
+                   progress_callback=None):
         self.app.addresses = {'device': '1.2.3.4'}
         self.app.remote_files = {'device': {'port': 5678}}
         self.app.request_remote_file('device', 'file.txt', 1234,
-                                     success_callback, failure_callback)
+                                     success_callback, failure_callback,
+                                     progress_callback)
         Downloader.assert_called_once_with(self.context, 'tcp://1.2.3.4:5678',
                                            'file.txt', 1234)
 
@@ -841,11 +843,11 @@ class test_KaimuApp(TestCase):
         failure_callback = Mock()
 
         downloader.download.side_effect = \
-            lambda callback: callback({'success': True, 'path': '/path'})
+            lambda callback, __: callback({'success': True, 'path': '/path'})
 
         self.do_request(Downloader, success_callback, failure_callback)
 
-        downloader.download.assert_called_once_with(ANY)
+        downloader.download.assert_called_once_with(ANY, ANY)
         success_callback.assert_called_once_with('/path')
 
     @patch('fileserver.Downloader')
@@ -855,12 +857,24 @@ class test_KaimuApp(TestCase):
         failure_callback = Mock()
 
         downloader.download.side_effect = \
-            lambda callback: callback({'success': False, 'reason': 'text'})
+            lambda callback, __: callback({'success': False, 'reason': 'text'})
 
         self.do_request(Downloader, success_callback, failure_callback)
 
-        downloader.download.assert_called_once_with(ANY)
+        downloader.download.assert_called_once_with(ANY, ANY)
         failure_callback.assert_called_once_with('text')
+
+    @patch('fileserver.Downloader')
+    def test_request_remote_file_passes_progress_callback(self, Downloader):
+        success_callback = Mock()
+        failure_callback = Mock()
+        progress_callback = Mock()
+
+        self.do_request(Downloader, success_callback, failure_callback,
+                        progress_callback)
+
+        Downloader.return_value.download.assert_called_once_with(
+            ANY, progress_callback)
 
 
 if __name__ == '__main__':

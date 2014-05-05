@@ -578,7 +578,19 @@ class KaimuApp(object):
             on_failure(status['reason'])
 
     def request_remote_file(self, device, filename, filesize,
-                            on_success, on_failure):
+                            on_success, on_failure, progress_callback=None):
+        """Request and download file from remote device
+
+        If download succeeds, on_success will be called with the path
+        of the downloaded file as argument.  Otherwise, on_failure
+        will be called with a string stating the reason for failure as
+        argument.
+
+        If progress_callback is provided, it will be called for each
+        chunk downloaded and is passed the value of the fraction
+        num_chunks_received / total_chunks as its sole argument.
+        """
+
         logging.info("Request remote file '%s' from '%s'" % (filename, device))
         endpoint = "tcp://%s:%d" % (self.addresses[device],
                                     self.remote_files[device]['port'])
@@ -587,9 +599,13 @@ class KaimuApp(object):
 
         logging.info("Starting download from %s" % endpoint)
 
-        downloader.download(functools.partial(
-                self._remote_file_callback,
-                on_success=on_success, on_failure=on_failure))
+        # Tell downloader to fetch the file.  Since it only uses one
+        # callback for success/failure indication, wrap two callbacks
+        # in a functools.partial call.
+        downloader.download(
+            functools.partial(self._remote_file_callback,
+                              on_success=on_success, on_failure=on_failure),
+            progress_callback)
 
 
 if __name__ == '__main__':
