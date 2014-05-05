@@ -530,7 +530,8 @@ class test_Downloader(TestCase):
         self.d = Downloader(self.context, self.ENDPOINT, self.FILENAME,
                             self.FILESIZE)
 
-    def do_download(self, recv_data=None, expect_success=True):
+    def do_download(self, recv_data=None, expect_success=True,
+                    progress_callback=None):
         if recv_data is None:
             recv_data = [
                 fileserver.file_header('filename', 0, len(self.DEF_DATA)),
@@ -538,7 +539,7 @@ class test_Downloader(TestCase):
                 ]
 
         self.socket.recv.side_effect = recv_data
-        self.d.download(self.callback)
+        self.d.download(self.callback, progress_callback)
         self.context.socket.assert_called_once_with(zmq.DEALER)
         self.socket.connect.assert_called_once_with(self.ENDPOINT)
 
@@ -669,6 +670,18 @@ class test_Downloader(TestCase):
 
         self.callback.assert_called_once_with({
                 'success': False, 'reason': 'File already exists'})
+
+    def test_download_indicates_progress(self, open_mock, exists_mock):
+        open_mock.return_value = MagicMock(spec=file)
+        exists_mock.return_value = False
+        progress_callback = Mock()
+        recv_data = self.recv_chunks(['1234', '5678'])
+
+        self.d.chunksize = 4
+        self.do_download(recv_data, progress_callback=progress_callback)
+
+        progress_callback.assert_has_calls([call(0.5), call(1.0)])
+        self.assertEqual(2, progress_callback.call_count)
 
 
 class test_serialization(TestCase):

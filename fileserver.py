@@ -272,11 +272,15 @@ class Downloader(object):
             yield offset, size
             offset += size
 
-    def _get_all_chunks(self, socket, filehandle):
+    def _get_all_chunks(self, socket, filehandle, progress_callback):
         # Query all chunks making up a file from socket and write it
-        # to filehandle.  For all chunks, send a request, receive the
-        # response and append it to file.
-        for offset, size in self._chunks(self.chunksize, self.filesize):
+        # to filehandle.
+        total_chunks = (self.filesize + self.chunksize - 1) / self.chunksize
+
+        chunk_params = self._chunks(self.chunksize, self.filesize)
+        # For each chunk, send a request, receive the response and
+        # append it to file.
+        for curr_chunk, (offset, size) in enumerate(chunk_params):
             # Create and send request to server
             request_msg = file_request_msg(self.filename, offset, size)
             logging.debug('Request chunk: %s', request_msg)
@@ -300,8 +304,10 @@ class Downloader(object):
             self._validate_chunk(file_chunk, size)
 
             filehandle.write(file_chunk)
+            if progress_callback is not None:
+                progress_callback(float(curr_chunk + 1) / total_chunks)
 
-    def download(self, callback):
+    def download(self, callback, progress_callback=None):
         """Start download of file to disk
 
         Use callback to signal the result of the operation.  callback
@@ -312,6 +318,11 @@ class Downloader(object):
         system.  If 'success' is False, the dict will instead contain
         a key 'reason' with a string as value, stating the reason for
         the failure.
+
+        If progress_callback is not None it will be called for each
+        received chunk, after it has been written to file. The value
+        of the fraction num_chunks_received / total_chunks is passed
+        as argument for each call to indicate download progress.
         """
 
         if os.path.exists(self.destination):
@@ -323,7 +334,7 @@ class Downloader(object):
 
         with open(self.destination, 'wb') as f:
             try:
-                self._get_all_chunks(socket, f)
+                self._get_all_chunks(socket, f, progress_callback)
             except DownloadError as error:
                 callback(error.args[0])
                 return
