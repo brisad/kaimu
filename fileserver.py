@@ -233,7 +233,8 @@ class Downloader(object):
             chunksize = filesize
         self.chunksize = chunksize
         self.destination = os.path.join(os.getcwd(), filename)
-        self.has_downloaded = False
+        self._has_downloaded = threading.Event()
+        self._synchronous = False
 
     def _validate_header(self, header, offset, size):
         # Check that header is consistent with what we expect.
@@ -307,6 +308,28 @@ class Downloader(object):
             if progress_callback is not None:
                 progress_callback(float(curr_chunk + 1) / total_chunks)
 
+    def _do_download(self, callback, progress_callback):
+        # This is the part that normally runs in a thread
+
+        socket = self.context.socket(zmq.DEALER)
+        socket.connect(self.endpoint)
+
+        with open(self.destination, 'wb') as f:
+            try:
+                self._get_all_chunks(socket, f, progress_callback)
+            except DownloadError as error:
+                callback(error.args[0])
+                return
+
+        self._has_downloaded.set()
+        callback({'success': True, 'path': self.destination})
+
+    @property
+    def has_downloaded(self):
+        """True if file has been stored on file system."""
+
+        return self._has_downloaded.is_set()
+
     def download(self, callback, progress_callback=None):
         """Start download of file to disk
 
@@ -329,18 +352,12 @@ class Downloader(object):
             callback({'success': False, 'reason': 'File already exists'})
             return
 
-        socket = self.context.socket(zmq.DEALER)
-        socket.connect(self.endpoint)
-
-        with open(self.destination, 'wb') as f:
-            try:
-                self._get_all_chunks(socket, f, progress_callback)
-            except DownloadError as error:
-                callback(error.args[0])
-                return
-
-        self.has_downloaded = True
-        callback({'success': True, 'path': self.destination})
+        # If we are unit testing, don't start a new thread
+        if self._synchronous:
+            self._do_download(callback, progress_callback)
+        else:
+            threading.Thread(target=self._do_download,
+                             args=(callback, progress_callback)).start()
 
 
 if __name__ == '__main__':

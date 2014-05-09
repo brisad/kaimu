@@ -529,6 +529,7 @@ class test_Downloader(TestCase):
         self.callback = Mock()
         self.d = Downloader(self.context, self.ENDPOINT, self.FILENAME,
                             self.FILESIZE)
+        self.d._synchronous = True
 
     def do_download(self, recv_data=None, expect_success=True,
                     progress_callback=None):
@@ -643,6 +644,7 @@ class test_Downloader(TestCase):
         recv_data = self.recv_chunks(['abc', 'def', 'gh'])
 
         self.d = Downloader(self.context, 'endpoint', 'filename', 8)
+        self.d._synchronous = True
         self.d.chunksize = 3
         self.do_download(recv_data)
 
